@@ -228,6 +228,7 @@ export default function RegisterScreen() {
       }
     }
 
+
     setLoading(true)
     try {
       const response = await fetch('/api/users?operation=create', {
@@ -247,7 +248,7 @@ export default function RegisterScreen() {
       const data = await response.json().catch(() => ({}))
 
       if (response.status === 201) {
-        router.push('/uis')
+        router.push(`/uis/verify-screen?email=${encodeURIComponent(email)}`)
         return
       }
 

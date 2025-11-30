@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server"
 /** Data Models Imports */
 import { User } from "../models.js"
-
+import nodemailer from "nodemailer";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -13,6 +13,22 @@ const CORS_HEADERS = {
 /** Handle preflight */
 export function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: CORS_HEADERS })
+}
+
+/** Generate verification/recovery code */
+function generateCode() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+/** Helper: create gmail transporter (keeps same credentials as provided) */
+function createTransporter() {
+  return nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      user: "Fftt7252@gmail.com",
+      pass: "soae wjwy yvdz iwwc"
+    }
+  })
 }
 
 /** GET Method - support read-only operations from browser (e.g. get-all-users, online) */
@@ -113,16 +129,42 @@ export async function POST(request) {
         )
       }
 
-      // Create: keep the same behavior as before (note: consider hashing passwords)
+      // Create: include validation code and send verification email
+      const code = generateCode()
       const toCreate = {
         ...data,
         email: emailNorm,
+        validationCode: code
       }
+
       const created = await User.create(toCreate)
       const out = created && created.toObject ? created.toObject() : created
       if (out && out.password) delete out.password
 
-      return NextResponse.json({ user: out }, { status: 201, headers: CORS_HEADERS })
+      // Transport and send verification email
+      const transporter = createTransporter()
+
+      await transporter.sendMail({
+        from: '"Chocolat Social" <Fftt7252@gmail.com>', // nom + email
+        to: data.email,                                 // email de l’utilisateur
+        subject: "🔒 Verify Your Email for Chocolat Social",
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px; background-color: #f9f9f9;">
+            <h2 style="color: #333;">Welcome to Chocolat Social!</h2>
+            <p>Hi <strong>${data.pseudo || ""}</strong>,</p>
+            <p>Thank you for registering. Please use the verification code below to activate your account:</p>
+            <div style="margin: 20px 0; text-align: center;">
+              <span style="font-size: 24px; font-weight: bold; color: #4caf50; padding: 10px 20px; border: 2px dashed #4caf50; border-radius: 8px;">
+                ${code}
+              </span>
+            </div>
+            <p>If you did not register on Chocolat Social, please ignore this email.</p>
+            <p style="font-size: 12px; color: #777;">© 2025 Chocolat Social. All rights reserved.</p>
+          </div>
+        `
+      });
+
+      return NextResponse.json({ message: "User created, check your email" }, { status: 201, headers: CORS_HEADERS })
     }
 
     if (operation === "login") {
@@ -167,8 +209,84 @@ export async function POST(request) {
       return NextResponse.json({ result: null }, { status: 200, headers: CORS_HEADERS })
     }
 
+    if (operation === "verify-code") {
+      // make body parsing resilient and normalize email for lookup
+      const data = await request.json().catch(() => null)
+      const email = data?.email ? String(data.email).trim().toLowerCase() : ""
+      const code = data?.code ? String(data.code).trim() : ""
+      if (!email || !code) {
+        return NextResponse.json({ error: "Missing email or code" }, { status: 400, headers: CORS_HEADERS })
+      }
+
+      const user = await User.findOne({ email, validationCode: code })
+      if (!user) {
+        return NextResponse.json({ error: "Invalid code" }, { status: 400, headers: CORS_HEADERS })
+      }
+
+      user.isValidated = true
+      user.validationCode = null
+      await user.save()
+
+      return NextResponse.json({ message: "Email verified successfully" }, { status: 200, headers: CORS_HEADERS })
+    }
+
     if (operation === "recover") {
-      return NextResponse.json({ result: null }, { status: 200, headers: CORS_HEADERS })
+      const data = await request.json()
+      const email = data?.email
+      if (!email) {
+        return NextResponse.json({ error: "Missing email" }, { status: 400, headers: CORS_HEADERS })
+      }
+
+      const user = await User.findOne({ email })
+      if (!user) {
+        return NextResponse.json({ error: "Email not found" }, { status: 404, headers: CORS_HEADERS })
+      }
+
+      // Générer code de récupération
+      const code = generateCode()
+      user.recoveryCode = code
+      await user.save()
+
+      // Envoi email
+      const transporter = createTransporter()
+
+      await transporter.sendMail({
+        from: '"Chocolat Social" <Fftt7252@gmail.com>',
+        to: user.email,
+        subject: "Password Recovery Code",
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px; background-color: #f9f9f9;">
+            <h2>Password Recovery</h2>
+            <p>Your recovery code is:</p>
+            <div style="text-align: center; margin: 20px;">
+              <span style="font-size: 24px; font-weight: bold; color: #f44336;">${code}</span>
+            </div>
+            <p>If you did not request a password reset, ignore this email.</p>
+          </div>
+        `
+      });
+
+      return NextResponse.json({ message: "Recovery code sent to your email" }, { status: 200, headers: CORS_HEADERS })
+    }
+
+    if (operation === "reset-password") {
+      const data = await request.json()
+      const { email, code, newPassword } = data || {}
+
+      if (!email || !code || !newPassword) {
+        return NextResponse.json({ error: "Missing email, code or newPassword" }, { status: 400, headers: CORS_HEADERS })
+      }
+
+      const user = await User.findOne({ email, recoveryCode: code })
+      if (!user) {
+        return NextResponse.json({ error: "Invalid code or email" }, { status: 400, headers: CORS_HEADERS })
+      }
+
+      user.password = newPassword
+      user.recoveryCode = null
+      await user.save()
+
+      return NextResponse.json({ message: "Password reset successfully" }, { status: 200, headers: CORS_HEADERS })
     }
 
     // Unrecognized operation for POST

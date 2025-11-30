@@ -53,6 +53,8 @@ const userSchema = new mongoose.Schema({
   isOnline: { type: Boolean, default: false },
   isValidated: { type: Boolean, default: false },
   location: { type: locationSchema, default: null },
+  validationCode: { type: String, default: null },
+  recoveryCode: { type: String, default: null },
 }, { timestamps: true });
 
 const postSchema = new mongoose.Schema({

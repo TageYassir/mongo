@@ -153,7 +153,7 @@ export default function UisLoginPage() {
             variant="text"
             onClick={() => {
               // help / forgot password route if you have one
-              window.location.href = '/uis/recover'
+              window.location.href = '/uis/recovery-screen'
             }}
           >
             Forgot password?

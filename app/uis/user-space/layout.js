@@ -1,6 +1,6 @@
 'use client'
 
-import { LocationOn as LocationOnIcon, MessageOutlined, PeopleOutline, CurrencyBitcoin, HomeOutlined } from "@mui/icons-material";
+import { LocationOn as LocationOnIcon, MessageOutlined, PeopleOutline, CurrencyBitcoin, HomeOutlined, AccountCircle } from "@mui/icons-material";
 import { AppBar, Box, Button, IconButton, Stack, Toolbar, Typography, Paper, BottomNavigation, BottomNavigationAction } from "@mui/material";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -90,8 +90,9 @@ export default function RootLayout({ children }) {
             <BottomNavigation showLabels value={value} onChange={(event, newValue) => setValue(newValue)}>
               <BottomNavigationAction onClick={(e) => loadScreen(e, "/uis/user-space")} label="Home" icon={<HomeOutlined />} />
               <BottomNavigationAction onClick={(e) => loadScreen(e, "/uis/user-space/maps")} label="Maps" icon={<LocationOnIcon />} />
-              <BottomNavigationAction onClick={(e) => loadScreen(e, "/uis/chat")} label="Chat" icon={<MessageOutlined />} />
               <BottomNavigationAction onClick={(e) => loadScreen(e, "/uis/all-users")} label="Community" icon={<PeopleOutline />} />
+              <BottomNavigationAction onClick={(e) => loadScreen(e, "/uis/chat")} label="Chat" icon={<MessageOutlined />} />
+              <BottomNavigationAction onClick={(e) => loadScreen(e, "/uis/user-space/profile")} label="Profile" icon={<AccountCircle />} />
               <BottomNavigationAction onClick={(e) => loadScreen(e, "/uis/crypto")} label="Crypto" icon={<CurrencyBitcoin />} />
             </BottomNavigation>
           </Paper>

@@ -9,7 +9,7 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 
 /**
- * All Users page — Contact now navigates directly to /uis/chat/<userId>
+ * All Users page — Contact now navigates to the user's profile in the user-space
  */
 
 export default function AllUsersPage() {
@@ -63,6 +63,12 @@ export default function AllUsersPage() {
   const navigateToChatWith = (id) => {
     if (!id) return
     router.push(`/uis/chat/${encodeURIComponent(id)}`)
+  }
+
+  // Navigate to the user's profile inside the user-space
+  const navigateToUserProfile = (id) => {
+    if (!id) return
+    router.push(`/uis/user-space/profile/${encodeURIComponent(id)}`)
   }
 
   return (
@@ -128,7 +134,8 @@ export default function AllUsersPage() {
               const subtitle = subtitleParts.join(" • ")
 
               const handleOpenConversation = () => navigateToChatWith(id)
-              const handleContactClick = (e) => { e.stopPropagation(); navigateToChatWith(id) }
+              // Contact button now opens the user's profile in user-space
+              const handleContactClick = (e) => { e.stopPropagation(); navigateToUserProfile(id) }
 
               return (
                 <Paper

@@ -79,20 +79,29 @@ const messageSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 /**
- * Model creation - check existing models to avoid OverwriteModelError
+ * Friend (friendship) schema - stores friend requests and accepted/refused relationships
+ * Fields:
+ * - senderId: ObjectId (ref User)  -> the user who initiated the request
+ * - receiverId: ObjectId (ref User) -> the user receiving the request
+ * - status: String -> 'pending' | 'accepted' | 'refused'
  */
+const friendSchema = new mongoose.Schema({
+  senderId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  receiverId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  status: { type: String, enum: ["pending", "accepted", "refused"], default: "pending" },
+}, { timestamps: true });
+
+// Avoid model overwrite in dev / hot-reload environments
 const User = mongoose.models.User || mongoose.model("User", userSchema);
 const Post = mongoose.models.Post || mongoose.model("Post", postSchema);
 const Message = mongoose.models.Message || mongoose.model("Message", messageSchema);
+const Friend = mongoose.models.Friend || mongoose.model("Friend", friendSchema);
 
 /**
  * Ensure connection is established when this module is imported.
- * Some environments will re-run module code on each request in dev;
- * connectToDatabase caches the promise to prevent multiple connects.
  */
 connectToDatabase().catch((err) => {
-  // Log error server-side. In production, handle appropriately.
-  console.error("MongoDB connection error:", err);
+  console.error("Failed to connect to MongoDB", err);
 });
 
-export { User, Post, Message, connectToDatabase };
+export { User, Post, Message, Friend, connectToDatabase };

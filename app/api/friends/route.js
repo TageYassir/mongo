@@ -115,6 +115,10 @@ export async function POST(request) {
       existing.receiverId = data.receiverId;
       existing.status = "pending";
       await existing.save();
+
+      // Populate before returning so client always receives sender info
+      await existing.populate({ path: "senderId", select: "pseudo firstName lastName" });
+
       return NextResponse.json({ request: existing }, { status: 200, headers: CORS_HEADERS });
     }
 
@@ -124,7 +128,11 @@ export async function POST(request) {
       status: "pending",
     });
     await fr.save();
-    const saved = await fr.populate("senderId", "pseudo firstName lastName").execPopulate();
+
+    // Modern Mongoose (v6+) returns a promise from populate; execPopulate() was removed.
+    // Populate senderId on the saved document and return it.
+    await fr.populate({ path: "senderId", select: "pseudo firstName lastName" });
+    const saved = fr;
 
     return NextResponse.json({ request: saved }, { status: 201, headers: CORS_HEADERS });
   } catch (error) {

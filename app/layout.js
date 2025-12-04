@@ -1,13 +1,16 @@
+import './globals.css'
+
 export const metadata = {
-  title: "My App",
-  description: "Admin UI",
+  title: 'App',
+  description: 'Application with global scroll locked',
 }
 
 export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <head />
-      <body>{children}</body>
+      <body>
+        {children}
+      </body>
     </html>
   )
 }

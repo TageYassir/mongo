@@ -87,7 +87,7 @@ export async function GET(request) {
   }
 }
 
-/** POST Method - create, login, update, recover, logout, etc. */
+/** POST Method - create, login, update, recover, logout, set-online, etc. */
 export async function POST(request) {
   try {
     const operation = request.nextUrl.searchParams.get("operation")
@@ -181,6 +181,47 @@ export async function POST(request) {
 
       if (user.password) delete user.password
       return NextResponse.json({ user }, { status: 200, headers: CORS_HEADERS })
+    }
+
+    /**
+     * NEW: set-online operation
+     * Accepts JSON body { id } or { userId } OR query params ?id=... or ?userId=...
+     * Marks user as online and updates lastActive timestamp.
+     */
+    if (operation === "set-online") {
+      // resilient parsing: prefer JSON body but fall back to URL search params
+      let data = null
+      try {
+        data = await request.json().catch(() => null)
+      } catch (e) {
+        data = null
+      }
+
+      let id = data?.id || data?.userId || null
+
+      try {
+        const url = new URL(request.url)
+        id = id || url.searchParams.get('id') || url.searchParams.get('userId') || null
+      } catch (e) {
+        // ignore URL parsing errors
+      }
+
+      if (!id) {
+        return NextResponse.json({ error: "Missing user id" }, { status: 400, headers: CORS_HEADERS })
+      }
+
+      const updated = await User.findByIdAndUpdate(
+        id,
+        { $set: { isOnline: true, lastActive: new Date() } },
+        { new: true, runValidators: true, context: 'query' }
+      ).lean()
+
+      if (!updated) {
+        return NextResponse.json({ error: "User not found" }, { status: 404, headers: CORS_HEADERS })
+      }
+
+      if (updated.password) delete updated.password
+      return NextResponse.json({ user: updated }, { status: 200, headers: CORS_HEADERS })
     }
 
     if (operation === "logout") {

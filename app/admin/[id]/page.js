@@ -278,7 +278,7 @@ export default function AdminPage() {
 
   return (
     <Box sx={{ p: 3 }}>
-      <Paper sx={{ p: 3 }}>
+      <Paper sx={{ p: 3, maxHeight: "70vh", overflow: "auto" }}>
         <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
           <Box>
             <Typography variant="h6">Manage user</Typography>

@@ -2,7 +2,9 @@
 
 import { useState } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
-import { Container, Stack, TextField, Button, Typography } from "@mui/material"
+import { Container, Stack, TextField, Button, Typography, InputAdornment, IconButton } from "@mui/material"
+import Visibility from '@mui/icons-material/Visibility'
+import VisibilityOff from '@mui/icons-material/VisibilityOff'
 
 export default function ResetPasswordPage() {
   const searchParams = useSearchParams()
@@ -15,6 +17,11 @@ export default function ResetPasswordPage() {
   const [newPassword, setNewPassword] = useState("")
   const [error, setError] = useState("")
   const [success, setSuccess] = useState("")
+
+  // Add show/hide password state and handlers
+  const [showPassword, setShowPassword] = useState(false)
+  const toggleShowPassword = () => setShowPassword((s) => !s)
+  const handleMouseDownPassword = (e) => e.preventDefault()
 
   function isStrongPassword(pwd) {
   if (!pwd || typeof pwd !== 'string') return false
@@ -84,9 +91,23 @@ export default function ResetPasswordPage() {
 
         <TextField 
           label="New Password"
-          type="password"
+          type={showPassword ? "text" : "password"}
           value={newPassword}
           onChange={(e) => setNewPassword(e.target.value)}
+          InputProps={{
+            endAdornment: (
+              <InputAdornment position="end">
+                <IconButton
+                  onClick={toggleShowPassword}
+                  onMouseDown={handleMouseDownPassword}
+                  edge="end"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <VisibilityOff /> : <Visibility />}
+                </IconButton>
+              </InputAdornment>
+            )
+          }}
         />
 
         {error && <Typography color="error">{error}</Typography>}

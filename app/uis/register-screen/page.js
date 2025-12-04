@@ -3,24 +3,28 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  Box,
-  Button,
-  TextField,
-  Typography,
-  Alert,
-  CircularProgress,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
-  FormHelperText,
-  Grid,
-  Autocomplete,
-  RadioGroup,
-  FormControlLabel,
-  Radio,
-  FormLabel,
+	Box,
+	Button,
+	TextField,
+	Typography,
+	Alert,
+	CircularProgress,
+	Select,
+	MenuItem,
+	FormControl,
+	InputLabel,
+	FormHelperText,
+	Grid,
+	Autocomplete,
+	RadioGroup,
+	FormControlLabel,
+	Radio,
+	FormLabel,
+	IconButton,
+	InputAdornment,
 } from '@mui/material'
+import Visibility from '@mui/icons-material/Visibility'
+import VisibilityOff from '@mui/icons-material/VisibilityOff'
 
 /**
  * Register screen - improved:
@@ -80,6 +84,7 @@ export default function RegisterScreen() {
   const [emailError, setEmailError] = useState('')
   const [password, setPassword] = useState('')
   const [passwordError, setPasswordError] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [pseudo, setPseudo] = useState('')
   const [pseudoAvailable, setPseudoAvailable] = useState(null)
   const [pseudoChecking, setPseudoChecking] = useState(false)
@@ -267,6 +272,12 @@ export default function RegisterScreen() {
     }
   }
 
+  const toggleShowPassword = () => setShowPassword((s) => !s)
+  const handleMouseDownPassword = (e) => {
+    // prevent focus loss when clicking the icon
+    e.preventDefault()
+  }
+
   return (
     <Box component="form" onSubmit={create} sx={{ maxWidth: 720, mx: 'auto', p: 2 }}>
       <Typography variant="h5" sx={{ mb: 2 }}>Register</Typography>
@@ -290,13 +301,27 @@ export default function RegisterScreen() {
         <Grid item xs={12} md={6}>
           <TextField
             label="Password"
-            type="password"
+            type={showPassword ? 'text' : 'password'}
             fullWidth
             value={password}
             onChange={handlePasswordChange}
             required
             error={Boolean(passwordError)}
             helperText={passwordError || 'At least 8 chars, include upper/lower/digit/special.'}
+            InputProps={{
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    onClick={toggleShowPassword}
+                    onMouseDown={handleMouseDownPassword}
+                    edge="end"
+                  >
+                    {showPassword ? <VisibilityOff /> : <Visibility />}
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
           />
         </Grid>
 

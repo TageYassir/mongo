@@ -1,0 +1,24 @@
+/* Global styles - blocks page scrolling across the entire app */
+:root {
+  /* keep default -- you can add other variables here if needed */
+}
+
+/* Prevent scrolling for the whole application */
+html, body {
+  height: 100%;
+  overflow: hidden; /* <-- THIS blocks vertical and horizontal scrolling */
+  -webkit-overflow-scrolling: auto;
+}
+
+/* If your app injects a root div, ensure it fills the height as well */
+#__next, #root, main {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* If you want to allow specific inner scrollable regions,
+   give them a class like .allow-scroll and explicitly enable overflow */
+.allow-scroll {
+  overflow: auto !important;
+  -webkit-overflow-scrolling: touch;
+}

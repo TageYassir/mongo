@@ -204,9 +204,9 @@ export default function Page() {
         </Box>
       </Stack>
 
-      <TableContainer component={Paper} variant="outlined" sx={{ boxShadow: "none" }}>
-        <Table sx={{ minWidth: 650 }} aria-label="simple table">
-          <TableHead>
+      <TableContainer component={Paper} variant="outlined" sx={{ boxShadow: "none", maxHeight: "60vh", overflow: "auto" }}>
+        <Table stickyHeader sx={{ minWidth: 650 }} aria-label="simple table">
+          <TableHead sx={{ "& .MuiTableCell-head": { backgroundColor: (theme) => theme.palette.background.paper, zIndex: 1 } }}>
             <TableRow>
               {/* ID header */}
               <TableCell>ID</TableCell>

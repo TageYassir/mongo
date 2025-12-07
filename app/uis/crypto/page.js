@@ -3,17 +3,19 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
-// Minimal placeholder for the Crypto dashboard page — cleaned and made resilient to API shapes.
+// CryptoIndex — improved detection + robust transaction fetching.
+// This client component will attempt to detect a connected user but will also
+// fall back to fetching all transactions when no user is detected. It tries
+// a wide set of API paths and normalizes results for display.
 export default function CryptoIndex() {
   const [connectedUserId, setConnectedUserId] = useState(null);
   const mountedRef = useRef(false);
-  const router = useRouter(); // kept in case you want navigation later
+  const router = useRouter();
 
   // detection helpers
   const hasWindow = typeof window !== "undefined";
   const hasDocument = typeof document !== "undefined";
 
-  // blocked user ids — treat these as unauthenticated / not-detected
   function isBlockedUser(id) {
     if (!id) return false;
     try {
@@ -145,7 +147,6 @@ export default function CryptoIndex() {
     (async () => {
       const id = await detectConnectedUserId();
       if (canceled) return;
-      // ensure blocked ids are never used
       if (id && !isBlockedUser(id)) setConnectedUserId(String(id));
       else setConnectedUserId(null);
     })();
@@ -184,27 +185,21 @@ export default function CryptoIndex() {
 
   // Normalize server transaction to UI-friendly shape
   function normalizeTransaction(t) {
-    // possible source fields:
-    // senderWalletId / sender / fromId
-    // receiverWalletId / receiver / toId
-    // sentAt / createdAt / date
-    // _id / id
     const id = t.id || t._id || (t._id && String(t._id)) || null;
-    const sentAt = t.sentAt || t.sent_at || t.createdAt || t.created_at || t.date || null;
+    const sentAt = t.sentAt || t.sent_at || t.createdAt || t.created_at || t.date || t.timestamp || null;
     const dateISO = sentAt ? new Date(sentAt).toISOString() : null;
-    const fromId = t.fromId || t.senderWalletId || t.sender || t.from || null;
-    const toId = t.toId || t.receiverWalletId || t.receiver || t.to || null;
+    const fromId = t.fromId || t.senderWalletId || t.sender || t.from || t.from_wallet || null;
+    const toId = t.toId || t.receiverWalletId || t.receiver || t.to || t.to_wallet || null;
     const amount = typeof t.amount === "number" ? t.amount : Number(t.amount || 0);
 
     return {
-      // keep raw for debugging
       raw: t,
       id,
       date: dateISO,
       fromId,
       toId,
       amount,
-      status: t.status || null,
+      status: t.status || t.state || null,
     };
   }
 
@@ -213,66 +208,96 @@ export default function CryptoIndex() {
     async function tryFetchJson(path) {
       try {
         const res = await fetch(path, { credentials: "same-origin" });
-        if (!res.ok) return null;
+        if (!res.ok) {
+          // try to parse body for debugging messages but return null for data
+          try { await res.json().catch(() => null); } catch (_) {}
+          return null;
+        }
         return await res.json().catch(() => null);
       } catch (e) {
         return null;
       }
     }
 
-    // 1) try wallet lookup if we have a userId (userId may be ObjectId)
-    const walletPaths = [
-      userId ? `/api/wallets/user/${encodeURIComponent(userId)}` : null,
-      userId ? `/api/wallet/user/${encodeURIComponent(userId)}` : null,
-      userId ? `/api/users/${encodeURIComponent(userId)}/wallets` : null,
-    ].filter(Boolean);
+    // Build candidate endpoints widely (covers common variants)
+    const candidates = [];
 
-    for (const p of walletPaths) {
-      const json = await tryFetchJson(p);
-      if (!json) continue;
-      // server may return { success: true, wallet } or { wallet } or array
-      const wallet = json?.wallet || (Array.isArray(json) && json[0]) || json?.data || null;
-      const walletId = wallet?.walletId || wallet?.walletId === 0 ? wallet.walletId : wallet?._id || wallet?.id || null;
-      if (walletId) {
-        // fetch transactions for that wallet
-        const txPaths = [
-          `/api/wallets/transactions/${encodeURIComponent(walletId)}`,
-          `/api/transactions/${encodeURIComponent(walletId)}`,
-          `/api/transactions?walletId=${encodeURIComponent(walletId)}`,
-        ];
-        for (const tp of txPaths) {
-          const txJson = await tryFetchJson(tp);
-          if (!txJson) continue;
-          const list = Array.isArray(txJson) ? txJson : txJson?.transactions || txJson?.data || txJson?.transactionsData || null;
-          if (Array.isArray(list)) {
-            return list.map(normalizeTransaction);
+    // If userId present, try endpoints that accept userId
+    if (userId) {
+      candidates.push(
+        `/api/crypto/transactions?userId=${encodeURIComponent(userId)}`,
+        `/api/crypto/transactions/${encodeURIComponent(userId)}`,
+        `/api/transactions?userId=${encodeURIComponent(userId)}`,
+        `/api/transactions/${encodeURIComponent(userId)}`,
+        `/api/wallets/transactions/${encodeURIComponent(userId)}`,
+        `/api/wallets/transactions?walletId=${encodeURIComponent(userId)}`,
+        `/api/transactions?walletId=${encodeURIComponent(userId)}`,
+        `/api/crypto?operation=get-transactions&userId=${encodeURIComponent(userId)}`
+      );
+    }
+
+    // Try wallet discovery first (many backends store transactions linked to wallets)
+    if (userId) {
+      const walletLookupCandidates = [
+        `/api/crypto/user/${encodeURIComponent(userId)}`,
+        `/api/crypto/wallets?userId=${encodeURIComponent(userId)}`,
+        `/api/wallets?userId=${encodeURIComponent(userId)}`,
+        `/api/wallets/user/${encodeURIComponent(userId)}`,
+        `/api/users/${encodeURIComponent(userId)}/wallets`,
+      ];
+      for (const p of walletLookupCandidates) {
+        const walletJson = await tryFetchJson(p);
+        if (!walletJson) continue;
+        const walletObj = walletJson?.wallet || (Array.isArray(walletJson) && walletJson[0]) || walletJson?.data || walletJson?.wallets || null;
+        const walletId = walletObj?.walletId || walletObj?._id || walletObj?.id || null;
+        if (walletId) {
+          // try transaction endpoints for that walletId
+          const txPaths = [
+            `/api/wallets/transactions/${encodeURIComponent(walletId)}`,
+            `/api/transactions/${encodeURIComponent(walletId)}`,
+            `/api/transactions?walletId=${encodeURIComponent(walletId)}`,
+            `/api/crypto/wallets/${encodeURIComponent(walletId)}/transactions`,
+            `/api/crypto/wallets/transactions/${encodeURIComponent(walletId)}`,
+            `/api/crypto/transactions/${encodeURIComponent(walletId)}`,
+          ];
+          for (const tp of txPaths) {
+            const txJson = await tryFetchJson(tp);
+            if (!txJson) continue;
+            const list = Array.isArray(txJson) ? txJson : txJson?.transactions || txJson?.data || txJson?.items || txJson?.transactionsData || null;
+            if (Array.isArray(list)) return list.map(normalizeTransaction);
           }
         }
       }
     }
 
-    // 2) treat provided userId as a walletId and try fetch directly
-    if (userId) {
-      const directTxCandidates = [
-        `/api/wallets/transactions/${encodeURIComponent(userId)}`,
-        `/api/transactions/${encodeURIComponent(userId)}`,
-        `/api/transactions?walletId=${encodeURIComponent(userId)}`,
-      ];
-      for (const p of directTxCandidates) {
-        const json = await tryFetchJson(p);
-        if (!json) continue;
-        const list = Array.isArray(json) ? json : json?.transactions || json?.data || null;
-        if (Array.isArray(list)) return list.map(normalizeTransaction);
-      }
-    }
+    // Generic candidates (global transactions or alternative endpoints)
+    candidates.push(
+      `/api/crypto/transactions`,
+      `/api/crypto?operation=get-transactions`,
+      `/api/crypto?operation=get-transactions&limit=100`,
+      `/api/transactions`,
+      `/api/txs`,
+      `/api/transactions/all`,
+      `/api/transactions?limit=100`
+    );
 
-    // 3) try generic endpoints
-    const genericPaths = [`/api/transactions`, `/api/txs`];
-    for (const p of genericPaths) {
+    // Also include direct wallet-like candidates even when userId is not present
+    candidates.push(
+      `/api/wallets/transactions`,
+      `/api/wallets/transactions?limit=100`,
+      `/api/crypto`
+    );
+
+    // Walk candidate endpoints until we find an array
+    for (const p of candidates) {
       const json = await tryFetchJson(p);
       if (!json) continue;
-      const list = Array.isArray(json) ? json : json?.transactions || json?.data || null;
-      if (Array.isArray(list)) return list.map(normalizeTransaction);
+      const list = Array.isArray(json) ? json : json?.transactions || json?.data || json?.items || json?.txs || json?.rows || null;
+      if (Array.isArray(list)) {
+        return list.map(normalizeTransaction);
+      }
+      // Some backends return { success: true, data: [...] }
+      if (json && Array.isArray(json.data)) return json.data.map(normalizeTransaction);
     }
 
     // nothing found
@@ -282,7 +307,8 @@ export default function CryptoIndex() {
   useEffect(() => {
     let canceled = false;
     (async () => {
-      if (!mountedRef.current) return;
+      // we allow fetch even if connectedUserId is null (global transactions)
+      if (!mountedRef.current) mountedRef.current = true;
       setLoading(true);
       setError(null);
       try {
@@ -291,6 +317,7 @@ export default function CryptoIndex() {
         setTransactions(txs);
       } catch (err) {
         if (!canceled) setError("Failed to load transactions");
+        console.error("fetch transactions error:", err);
       } finally {
         if (!canceled) setLoading(false);
       }
@@ -308,6 +335,7 @@ export default function CryptoIndex() {
         setTransactions(txs);
       } catch (e) {
         setError("Failed to refresh transactions");
+        console.error("refresh error:", e);
       } finally {
         setLoading(false);
       }
@@ -328,16 +356,13 @@ export default function CryptoIndex() {
     <section style={{ padding: 24, fontFamily: "Arial, sans-serif", maxWidth: 900 }}>
       <h1 style={{ margin: 0 }}>Wallet Transactions</h1>
       <p style={{ color: "#666", marginTop: 8 }}>
-        Showing all transactions. The page will attempt to load transactions from your backend API.
+        Showing transactions. The page will attempt many common API paths to locate transactions.
       </p>
 
       <div style={{ marginTop: 16, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        {/* Connected user display removed per request */}
-
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
           <button
             onClick={() => {
-              // navigate to the dynamic route under app\uis\crypto\[id]\page.js
               if (connectedUserId) {
                 router.push(`/uis/crypto/${encodeURIComponent(String(connectedUserId))}`);
               } else {

@@ -1,3 +1,4 @@
+// app/api/crypto/transfer/route.js
 import mongoose from 'mongoose';
 
 function jsonResponse(obj, status = 200) {
@@ -12,20 +13,31 @@ export async function POST(req) {
     const body = await req.json().catch(() => ({}));
     const { fromWalletId, toWalletId, amount } = body || {};
     const amt = Number(amount);
+
     if (!fromWalletId || !toWalletId) return jsonError(400, 'fromWalletId and toWalletId are required');
-    if (fromWalletId === toWalletId) return jsonError(400, 'fromWalletId and toWalletId must be different');
     if (!amt || isNaN(amt) || amt <= 0) return jsonError(400, 'amount must be a positive number');
 
-    // import models
+    // import models using the same pattern as other handlers in this repo
     const modelsMod = await import('../../models').catch(() => null);
+    // support both ESM default and CommonJS shapes
     const mod = modelsMod?.default || modelsMod || require('../../models');
     const { Wallet, Transaction } = mod;
 
-    const sessionSupported = typeof mongoose.startSession === 'function';
-    if (sessionSupported) {
-      const session = await mongoose.startSession();
-      session.startTransaction();
+    let session = null;
+    let txnSupported = true;
+
+    // Attempt transaction path
+    try {
+      session = await mongoose.startSession();
       try {
+        session.startTransaction();
+      } catch (startErr) {
+        // Transactions not supported on standalone mongod -> fallback
+        txnSupported = false;
+      }
+
+      if (txnSupported) {
+        // debit sender atomically if they have enough balance
         const sender = await Wallet.findOneAndUpdate(
           { walletId: fromWalletId, balance: { $gte: amt } },
           { $inc: { balance: -amt } },
@@ -37,6 +49,7 @@ export async function POST(req) {
           return jsonError(400, 'Insufficient funds or sender not found');
         }
 
+        // credit receiver
         const receiver = await Wallet.findOneAndUpdate(
           { walletId: toWalletId },
           { $inc: { balance: amt } },
@@ -45,62 +58,81 @@ export async function POST(req) {
         if (!receiver) {
           await session.abortTransaction();
           session.endSession();
-          return jsonError(404, 'Receiver wallet not found');
+          return jsonError(404, 'Receiver not found');
         }
 
+        // record transaction
         await Transaction.create(
-          [
-            { senderWalletId: fromWalletId, receiverWalletId: toWalletId, amount: amt, status: 'completed' }
-          ],
+          [{
+            senderWalletId: fromWalletId,
+            receiverWalletId: toWalletId,
+            amount: amt,
+            status: 'completed',
+          }],
           { session }
         );
 
         await session.commitTransaction();
         session.endSession();
 
-        const updatedSender = await Wallet.findOne({ walletId: fromWalletId }).lean();
-        const updatedReceiver = await Wallet.findOne({ walletId: toWalletId }).lean();
-
-        return jsonResponse({ success: true, sender: updatedSender, receiver: updatedReceiver });
-      } catch (err) {
-        await session.abortTransaction();
-        session.endSession();
-        console.error('transfer error (txn)', err);
+        return jsonResponse({ success: true, sender, receiver });
+      }
+    } catch (err) {
+      // If we get here and it's a transaction-related rejection, we'll fallback below
+      const txnErr = err && (err.code === 20 || (err.message && err.message.includes('Transaction numbers')));
+      if (!txnErr) {
+        // non-transaction error — try to clean up session then return error
+        try { if (session) { await session.abortTransaction(); session.endSession(); } } catch (e) {}
+        console.error('transfer error', err);
         return jsonError(500, 'Transfer failed');
       }
+      // else fall through to fallback path
     }
 
-    // Fallback: guarded updates with rollback
+    // Fallback: best-effort non-transactional transfer (for standalone mongod)
     try {
+      // 1) debit sender atomically if enough balance
       const sender = await Wallet.findOneAndUpdate(
         { walletId: fromWalletId, balance: { $gte: amt } },
         { $inc: { balance: -amt } },
         { new: true }
       );
-      if (!sender) return jsonError(400, 'Insufficient funds or sender not found');
+      if (!sender) {
+        return jsonError(400, 'Insufficient funds or sender not found (no-transaction fallback)');
+      }
 
+      // 2) credit receiver
       const receiver = await Wallet.findOneAndUpdate(
         { walletId: toWalletId },
         { $inc: { balance: amt } },
         { new: true }
       );
       if (!receiver) {
+        // try to compensate: credit back the sender
         await Wallet.findOneAndUpdate({ walletId: fromWalletId }, { $inc: { balance: amt } });
-        return jsonError(404, 'Receiver wallet not found; rolled back');
+        return jsonError(404, 'Receiver not found. Transfer aborted and sender compensated (best-effort)');
       }
 
-      await Transaction.create({ senderWalletId: fromWalletId, receiverWalletId: toWalletId, amount: amt, status: 'completed' });
+      // record transaction (best-effort)
+      await Transaction.create({
+        senderWalletId: fromWalletId,
+        receiverWalletId: toWalletId,
+        amount: amt,
+        status: 'completed',
+      });
 
-      const updatedSender = await Wallet.findOne({ walletId: fromWalletId }).lean();
-      const updatedReceiver = await Wallet.findOne({ walletId: toWalletId }).lean();
-
-      return jsonResponse({ success: true, sender: updatedSender, receiver: updatedReceiver });
-    } catch (err) {
-      console.error('transfer error (fallback)', err);
-      return jsonError(500, 'Transfer failed');
+      return jsonResponse({
+        success: true,
+        sender,
+        receiver,
+        warning: 'Performed without transaction (standalone mongod)',
+      });
+    } catch (fallbackErr) {
+      console.error('transfer fallback error', fallbackErr);
+      return jsonError(500, 'Fallback transfer failed');
     }
   } catch (err) {
-    console.error('transfer error', err);
+    console.error('transfer top-level error', err);
     return jsonError(500, 'Internal server error');
   }
 }

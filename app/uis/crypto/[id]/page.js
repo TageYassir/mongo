@@ -18,6 +18,7 @@ export default function CryptoDetailSimple() {
   const [amount, setAmount] = useState('');
   const [message, setMessage] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const hasWindow = typeof window !== 'undefined';
   const hasDocument = typeof document !== 'undefined';
@@ -272,6 +273,29 @@ export default function CryptoDetailSimple() {
     setMessage({ type: 'error', text: 'Could not create wallet on server. Ensure API/DB is available.' });
   }
 
+  // copy wallet id to clipboard (with fallback)
+  async function handleCopyWalletId() {
+    if (!wallet || !wallet.walletId) return;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(String(wallet.walletId));
+      } else if (typeof document !== 'undefined') {
+        const ta = document.createElement('textarea');
+        ta.value = String(wallet.walletId);
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (e) {
+      setMessage({ type: 'error', text: 'Copy failed.' });
+    }
+  }
+
   // perform send using server APIs only (no local fallback)
   async function handleSend() {
     setMessage(null);
@@ -373,7 +397,25 @@ export default function CryptoDetailSimple() {
       <div style={{ marginBottom: 16 }}>
         {wallet ? (
           <div style={{ padding: 12, border: '1px solid #eee', borderRadius: 8 }}>
-            <div><strong>Wallet ID:</strong> <span style={{ wordBreak: 'break-all' }}>{wallet.walletId}</span></div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ minWidth: 0 }}>
+                <strong>Wallet ID:</strong>{' '}
+                <span style={{ wordBreak: 'break-all' }}>{wallet.walletId}</span>
+              </div>
+              <button
+                onClick={handleCopyWalletId}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: 6,
+                  border: '1px solid #ccc',
+                  background: '#fff',
+                  cursor: 'pointer'
+                }}
+              >
+                Copy
+              </button>
+              {copied && <div style={{ color: '#064', fontSize: 12 }}>Copied!</div>}
+            </div>
             <div style={{ marginTop: 6 }}><strong>Balance:</strong> {Number(wallet.balance || 0)}</div>
           </div>
         ) : (

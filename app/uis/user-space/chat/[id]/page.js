@@ -9,7 +9,7 @@ import ChatClient from "./ChatClient"
  * Note: Uses the same models helper as the API route (app/api/models.js).
  * This avoids calling the API over HTTP from the server — we query the DB directly.
  */
-import { connectToDatabase, User } from "../../../api/models"
+import { connectToDatabase, User } from "../../../../api/models"
 
 export default async function ChatPage({ params }) {
   const receiverId = params?.id || null

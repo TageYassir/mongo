@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Box, Button, CircularProgress, List, ListItem, ListItemText, Typography, Avatar, ListItemAvatar, Divider, Paper, TextField, InputAdornment, IconButton } from '@mui/material'
+import { Box, CircularProgress, List, ListItem, ListItemText, Typography, Avatar, ListItemAvatar, Divider, Paper, TextField, InputAdornment, IconButton } from '@mui/material'
 import SearchIcon from '@mui/icons-material/Search'
 import ClearIcon from '@mui/icons-material/Clear'
 
@@ -138,7 +138,7 @@ export default function ConversationsList() {
   const openConversation = (peerId) => {
     if (!peerId) return
     // Prefer route-based chat page
-    router.push(`/uis/chat/${encodeURIComponent(peerId)}`)
+    router.push(`/uis/user-space/chat/${encodeURIComponent(peerId)}`)
   }
 
   // client-side filtering by peer pseudo / firstName
@@ -151,9 +151,8 @@ export default function ConversationsList() {
 
   return (
     <Box sx={{ p: 2 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', mb: 2 }}>
         <Typography variant="h5" sx={{ fontWeight: 700 }}>Conversations</Typography>
-        <Button size="small" variant="outlined" onClick={() => router.push('/uis/user-space')}>Back</Button>
       </Box>
 
       {/* Search bar */}

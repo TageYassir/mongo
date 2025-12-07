@@ -387,8 +387,8 @@ export default function RootLayout({ children }) {
             <BottomNavigation showLabels value={value} onChange={(event, newValue) => setValue(newValue)}>
               <BottomNavigationAction onClick={(e) => loadScreen(e, "/uis/user-space")} label="Home" icon={<HomeOutlined />} />
               <BottomNavigationAction onClick={(e) => loadScreen(e, "/uis/user-space/maps")} label="Maps" icon={<LocationOnIcon />} />
-              <BottomNavigationAction onClick={(e) => loadScreen(e, "/uis/all-users")} label="Community" icon={<PeopleOutline />} />
-              <BottomNavigationAction onClick={(e) => loadScreen(e, "/uis/chat")} label="Chat" icon={<MessageOutlined />} />
+              <BottomNavigationAction onClick={(e) => loadScreen(e, "/uis/user-space/all-users")} label="Community" icon={<PeopleOutline />} />
+              <BottomNavigationAction onClick={(e) => loadScreen(e, "/uis/user-space/chat")} label="Chat" icon={<MessageOutlined />} />
               <BottomNavigationAction onClick={(e) => loadScreen(e, "/uis/user-space/profile")} label="Profile" icon={<AccountCircle />} />
               <BottomNavigationAction onClick={(e) => loadScreen(e, "/uis/crypto")} label="Crypto" icon={<CurrencyBitcoin />} />
             </BottomNavigation>

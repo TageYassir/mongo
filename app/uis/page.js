@@ -1,7 +1,9 @@
 'use client'
 
 import React, { useEffect, useState } from 'react'
-import { Box, Button, TextField, Typography, Alert, CircularProgress } from '@mui/material'
+import { Box, Button, TextField, Typography, Alert, CircularProgress, IconButton, InputAdornment } from '@mui/material'
+import Visibility from '@mui/icons-material/Visibility'
+import VisibilityOff from '@mui/icons-material/VisibilityOff'
 
 /**
  * /uis page - Login / welcome page
@@ -26,6 +28,14 @@ export default function UisLoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [info, setInfo] = useState(null)
+
+  // new: password visibility state + handlers
+  const [showPassword, setShowPassword] = useState(false)
+  const handleToggleShowPassword = () => setShowPassword((s) => !s)
+  const handleMouseDownPassword = (event) => {
+    // prevent focus loss on mouse down
+    event.preventDefault()
+  }
 
   // Helper to inform server the user is online. Prefer fetch (so server sees Content-Type),
   // fall back to sendBeacon only if fetch fails or times out.
@@ -210,13 +220,28 @@ export default function UisLoginPage() {
           fullWidth
         />
 
+        {/* updated password field to include visibility toggle */}
         <TextField
           label="Password"
-          type="password"
+          type={showPassword ? 'text' : 'password'}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           required
           fullWidth
+          InputProps={{
+            endAdornment: (
+              <InputAdornment position="end">
+                <IconButton
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  onClick={handleToggleShowPassword}
+                  onMouseDown={handleMouseDownPassword}
+                  edge="end"
+                >
+                  {showPassword ? <VisibilityOff /> : <Visibility />}
+                </IconButton>
+              </InputAdornment>
+            ),
+          }}
         />
 
         <Button type="submit" variant="contained" color="primary" disabled={loading}>

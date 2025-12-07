@@ -132,7 +132,7 @@ export default function AllUsersPage() {
   // Navigate to direct chat path (dynamic route)
   const navigateToChatWith = (id) => {
     if (!id) return
-    router.push(`/uis/chat/${encodeURIComponent(id)}`)
+    router.push(`/uis/user-space/chat/${encodeURIComponent(id)}`)
   }
 
   // Navigate to the user's profile inside the user-space

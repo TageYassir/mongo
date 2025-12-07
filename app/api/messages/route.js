@@ -64,7 +64,7 @@ export async function GET(request) {
 
 /**
  * POST - create a new message
- * Expects JSON body: { senderId, receiverId, text, sentAt? }
+ * Expects JSON body: { senderId, receiverId, text?, sentAt?, attachments? }
  * Returns 201 with saved message on success.
  */
 export async function POST(request) {
@@ -72,8 +72,8 @@ export async function POST(request) {
     const data = await request.json()
     console.debug("POST /api/messages body:", data)
 
-    if (!data || !data.senderId || !data.receiverId || !data.text) {
-      return NextResponse.json({ error: "Missing required fields (senderId, receiverId, text)" }, { status: 400, headers: CORS_HEADERS })
+    if (!data || !data.senderId || !data.receiverId) {
+      return NextResponse.json({ error: "Missing required fields (senderId, receiverId)" }, { status: 400, headers: CORS_HEADERS })
     }
 
     // Validate ObjectId format early so we don't try to save obviously-bad ids
@@ -84,11 +84,30 @@ export async function POST(request) {
       return NextResponse.json({ error: "Invalid receiverId format" }, { status: 400, headers: CORS_HEADERS })
     }
 
+    // allow empty text if attachments are provided
+    const textVal = data.text ? String(data.text) : ""
+
     const toSave = {
       senderId: data.senderId,
       receiverId: data.receiverId,
-      text: String(data.text),
+      text: textVal,
       sentAt: data.sentAt ? new Date(data.sentAt) : new Date(),
+    }
+
+    // attachments: validate basic shape if provided (array of objects with url)
+    if (Array.isArray(data.attachments) && data.attachments.length > 0) {
+      const sanitized = data.attachments.map((a) => {
+        return {
+          type: a?.type || null,
+          url: a?.url || null,
+          filename: a?.filename || null,
+          size: typeof a?.size === "number" ? a.size : (a?.size ? Number(a.size) : null),
+          mimeType: a?.mimeType || a?.type || null,
+        }
+      }).filter(a => a.url) // keep those with url at least
+      if (sanitized.length > 0) {
+        toSave.attachments = sanitized
+      }
     }
 
     const created = await Message.create(toSave)

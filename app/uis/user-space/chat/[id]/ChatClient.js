@@ -1,21 +1,27 @@
 'use client'
 
-import React, { useEffect, useState, useRef } from "react"
-import Link from "next/link"
+import React, { useEffect, useState, useRef, useCallback } from "react"
 import { useSearchParams, useParams } from "next/navigation"
-import { Box, Typography, Container, TextField, Button, List, ListItem, IconButton } from "@mui/material"
+import { Box, Typography, Container, TextField, Button, List, ListItem, IconButton, Menu, MenuItem, ListItemIcon, ListItemText } from "@mui/material"
 import ImageIcon from "@mui/icons-material/Image"
 import MicIcon from "@mui/icons-material/Mic"
 import StopIcon from "@mui/icons-material/Stop"
+import PlayArrowIcon from "@mui/icons-material/PlayArrow"
+import PauseIcon from "@mui/icons-material/Pause"
+import VolumeUpIcon from "@mui/icons-material/VolumeUp"
+import MoreVertIcon from "@mui/icons-material/MoreVert"
+import DownloadIcon from "@mui/icons-material/Download"
 
 /**
- * ChatClient with:
- * - composer fixed at bottom
- * - image upload
- * - voice recording (MediaRecorder)
- * - messages render attachments (image/audio)
+ * ChatClient
  *
- * Note: requires server upload endpoint at /api/messages/upload (multipart/form-data).
+ * - Restores the previous "old" UI layout / look & flow you had originally:
+ *   header, message list area with simple bubbles, composer fixed to bottom with attach/record/send.
+ * - Keeps the improved voice-note UI (compact WhatsApp-like pill) with a scrub-able progress bar,
+ *   play/pause, mute and a three-dot menu — matching the vocal style you provided.
+ * - Keeps image preview, file upload, recording/uploading flow and mobile-friendly touches.
+ *
+ * Note: relies on /api/messages and /api/messages/upload similar to your original implementation.
  */
 
 export default function ChatClient({ receiver: receiverFromServer = null, receiverId: receiverProp = null }) {
@@ -38,6 +44,19 @@ export default function ChatClient({ receiver: receiverFromServer = null, receiv
   const [recording, setRecording] = useState(false)
   const mediaRecorderRef = useRef(null)
   const recordedChunksRef = useRef([])
+  const activeStreamRef = useRef(null)
+
+  // recording timer
+  const [recordElapsedMs, setRecordElapsedMs] = useState(0)
+  const recordIntervalRef = useRef(null)
+  const recordStartRef = useRef(null)
+
+  // upload state
+  const [uploadingAudio, setUploadingAudio] = useState(false)
+
+  // preview state
+  const [previewImageUrl, setPreviewImageUrl] = useState(null)
+  const [previewFilename, setPreviewFilename] = useState(null)
 
   const messagesEndRef = useRef(null)
   const fileInputRef = useRef(null)
@@ -118,8 +137,27 @@ export default function ChatClient({ receiver: receiverFromServer = null, receiv
       }
     }
     fetchConversation()
-    // refetch when receiver or user changes
   }, [currentUserId, receiverId])
+
+  useEffect(() => {
+    // cleanup on unmount
+    return () => {
+      try {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+          mediaRecorderRef.current.stop()
+        }
+      } catch (e) {}
+      try {
+        if (activeStreamRef.current) {
+          activeStreamRef.current.getTracks().forEach(t => t.stop())
+        }
+      } catch (e) {}
+      if (recordIntervalRef.current) {
+        clearInterval(recordIntervalRef.current)
+        recordIntervalRef.current = null
+      }
+    }
+  }, [])
 
   const scrollToBottom = () => {
     try {
@@ -129,7 +167,21 @@ export default function ChatClient({ receiver: receiverFromServer = null, receiv
     } catch (e) {}
   }
 
-  // upload helper: sends file via FormData to /api/messages/upload and returns { url, filename, size, type }
+  function formatElapsed(ms) {
+    const totalSec = Math.floor(ms / 1000)
+    const minutes = Math.floor(totalSec / 60).toString().padStart(2, '0')
+    const seconds = (totalSec % 60).toString().padStart(2, '0')
+    return `${minutes}:${seconds}`
+  }
+
+  // format seconds (used for audio playback times which are in seconds)
+  function formatSeconds(secs) {
+    const totalSec = Math.max(0, Math.floor(secs || 0))
+    const minutes = Math.floor(totalSec / 60).toString().padStart(2, '0')
+    const seconds = (totalSec % 60).toString().padStart(2, '0')
+    return `${minutes}:${seconds}`
+  }
+
   async function uploadFile(file) {
     try {
       const fd = new FormData()
@@ -147,9 +199,162 @@ export default function ChatClient({ receiver: receiverFromServer = null, receiv
     }
   }
 
+  async function handleFileSend(file, forcedType = null) {
+    if (!file) return
+    try {
+      const baseType = forcedType || (file.type ? (file.type.startsWith('audio/') ? 'audio' : (file.type.startsWith('image/') ? 'image' : 'file')) : 'file')
+      if (baseType === 'audio') setUploadingAudio(true)
+      const uploaded = await uploadFile(file)
+      if (!uploaded?.url) throw new Error("Upload did not return url")
+      const senderIdFinal = currentUserId || (typeof window !== 'undefined' && JSON.parse(localStorage.getItem("user") || "{}").id)
+      const payload = {
+        senderId: senderIdFinal,
+        receiverId,
+        text: "",
+        sentAt: new Date().toISOString(),
+        attachments: [{ type: baseType, url: uploaded.url, filename: uploaded.filename || file.name, size: uploaded.size, mimeType: uploaded.type || file.type }],
+      }
+      const r = await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+      if (r.ok) {
+        const p = await r.json()
+        setMessages((m) => [...m, p?.message || payload])
+        setTimeout(() => scrollToBottom(), 50)
+      } else {
+        const p = await r.json().catch(() => null)
+        setError(p?.error || `Server returned ${r.status}`)
+      }
+    } catch (err) {
+      console.error("file send error", err)
+      setError(err.message || "File upload failed")
+    } finally {
+      setUploadingAudio(false)
+    }
+  }
+
+  // Recording voice message with timer and upload as audio
+  async function startRecording() {
+    setError(null)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      activeStreamRef.current = stream
+
+      const options = {}
+      if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported) {
+        if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) options.mimeType = 'audio/webm;codecs=opus'
+        else if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) options.mimeType = 'audio/ogg;codecs=opus'
+        else if (MediaRecorder.isTypeSupported('audio/mp4')) options.mimeType = 'audio/mp4'
+      }
+      const mediaRecorder = new MediaRecorder(stream, options)
+      recordedChunksRef.current = []
+
+      mediaRecorder.addEventListener("dataavailable", (ev) => {
+        if (ev.data && ev.data.size > 0) recordedChunksRef.current.push(ev.data)
+      })
+
+      mediaRecorder.addEventListener("stop", async () => {
+        try {
+          const mime = mediaRecorder.mimeType || (recordedChunksRef.current[0] && recordedChunksRef.current[0].type) || 'audio/webm'
+          const blob = new Blob(recordedChunksRef.current, { type: mime })
+          let ext = 'webm'
+          if (mime.includes('ogg')) ext = 'ogg'
+          else if (mime.includes('mp4') || mime.includes('mpeg')) ext = 'm4a'
+          const file = new File([blob], `voice-${Date.now()}.${ext}`, { type: mime })
+          await handleFileSend(file, "audio")
+        } catch (err) {
+          console.error("record stop error", err)
+          setError("Recording failed.")
+        } finally {
+          setRecording(false)
+          setRecordElapsedMs(0)
+          try { if (activeStreamRef.current) activeStreamRef.current.getTracks().forEach(t => t.stop()) } catch (e) {}
+          activeStreamRef.current = null
+          if (recordIntervalRef.current) { clearInterval(recordIntervalRef.current); recordIntervalRef.current = null }
+        }
+      })
+
+      mediaRecorderRef.current = mediaRecorder
+      mediaRecorder.start()
+      recordStartRef.current = Date.now()
+      setRecordElapsedMs(0)
+      if (recordIntervalRef.current) clearInterval(recordIntervalRef.current)
+      recordIntervalRef.current = setInterval(() => {
+        setRecordElapsedMs(Date.now() - recordStartRef.current)
+      }, 200)
+      setRecording(true)
+    } catch (err) {
+      console.error("startRecording error", err)
+      setError("Could not start audio recording (permission denied or unsupported).")
+      setRecording(false)
+    }
+  }
+
+  function stopRecording() {
+    try {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        mediaRecorderRef.current.stop()
+      } else {
+        setRecording(false)
+        setRecordElapsedMs(0)
+        try { if (activeStreamRef.current) activeStreamRef.current.getTracks().forEach(t => t.stop()) } catch (e) {}
+        activeStreamRef.current = null
+        if (recordIntervalRef.current) { clearInterval(recordIntervalRef.current); recordIntervalRef.current = null }
+      }
+    } catch (e) {
+      console.error("stopRecording error", e)
+    }
+  }
+
+  function onFileInputChange(e) {
+    const f = e.target.files && e.target.files[0]
+    if (f) {
+      const detected = f.type ? (f.type.startsWith('audio/') ? 'audio' : (f.type.startsWith('image/') ? 'image' : 'file')) : 'file'
+      handleFileSend(f, detected)
+    }
+    e.target.value = null
+  }
+
+  function openPreview(url, filename) {
+    setPreviewImageUrl(url)
+    setPreviewFilename(filename || null)
+  }
+
+  async function downloadFile(url, filename = 'file') {
+    try {
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename || ''
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+    } catch (e) {
+      try {
+        const res = await fetch(url)
+        const blob = await res.blob()
+        const blobUrl = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = blobUrl
+        a.download = filename || 'file'
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 1000)
+      } catch (err) {
+        console.error('download failed', err)
+        setError('Download failed')
+      }
+    }
+  }
+
+  // Restore handleSend (simple text send)
   async function handleSend() {
-    if ((!text || text.trim() === "") && messages.length && !sending) {
-      // do nothing if empty message
+    if (!text || text.trim() === "") {
+      // avoid sending empty messages
+      setError("Can't send an empty message.")
+      return
     }
     if (!receiverId) { setError("No receiver selected."); return }
     setSending(true)
@@ -177,7 +382,7 @@ export default function ChatClient({ receiver: receiverFromServer = null, receiv
       receiverId,
       text: text.trim() || "",
       sentAt,
-      attachments: [], // attachments added by other flows
+      attachments: [],
     }
 
     try {
@@ -192,7 +397,6 @@ export default function ChatClient({ receiver: receiverFromServer = null, receiv
         setMessages((m) => [...m, saved])
         setText("")
         setTimeout(() => scrollToBottom(), 50)
-        // Optionally refetch conversation to ensure persisted ordering
       } else {
         const payload = await res.json().catch(() => null)
         setError(payload?.error || `Server returned ${res.status}`)
@@ -205,85 +409,189 @@ export default function ChatClient({ receiver: receiverFromServer = null, receiv
     }
   }
 
-  // handle image file selection
-  async function handleImageSelected(file) {
-    if (!file) return
-    try {
-      const uploaded = await uploadFile(file)
-      if (!uploaded?.url) throw new Error("Upload did not return url")
-      // now send a message with attachment
-      const senderIdFinal = currentUserId || (JSON.parse(localStorage.getItem("user") || "{}").id)
-      const payload = {
-        senderId: senderIdFinal,
-        receiverId,
-        text: "", // optional caption could be included
-        sentAt: new Date().toISOString(),
-        attachments: [{ type: "image", url: uploaded.url, filename: uploaded.filename, size: uploaded.size }],
+  // Compact WhatsApp-like audio UI used inside message bubbles.
+  function VoiceBubble({ src, filename }) {
+    const audioRef = useRef(null)
+    const progressRef = useRef(null)
+    const [duration, setDuration] = useState(0)
+    const [current, setCurrent] = useState(0)
+    const [playing, setPlaying] = useState(false)
+    const [muted, setMuted] = useState(false)
+    const draggingRef = useRef(false)
+
+    // menu + playback speed state
+    const [menuAnchor, setMenuAnchor] = useState(null)
+    const [playbackSpeed, setPlaybackSpeed] = useState(1.0)
+    const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2]
+
+    const openMenu = (e) => setMenuAnchor(e.currentTarget)
+    const closeMenu = () => setMenuAnchor(null)
+    const onSelectSpeed = (s) => { setPlaybackSpeed(s); closeMenu() }
+    const onDownload = () => { closeMenu(); downloadFile(src, filename || `audio-${Date.now()}.webm`) }
+
+    useEffect(() => {
+      const a = new Audio(src)
+      a.preload = 'metadata'
+      audioRef.current = a
+      a.playbackRate = playbackSpeed
+      const onLoaded = () => setDuration(a.duration || 0)
+      const onTime = () => { if (!draggingRef.current) setCurrent(a.currentTime) }
+      const onEnd = () => { setPlaying(false); setCurrent(a.duration || 0) }
+      a.addEventListener('loadedmetadata', onLoaded)
+      a.addEventListener('timeupdate', onTime)
+      a.addEventListener('ended', onEnd)
+      return () => {
+        try { a.pause(); a.removeEventListener('loadedmetadata', onLoaded); a.removeEventListener('timeupdate', onTime); a.removeEventListener('ended', onEnd) } catch (e) {}
       }
-      const r = await fetch("/api/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      })
-      if (r.ok) {
-        const p = await r.json()
-        setMessages((m) => [...m, p?.message || payload])
-        setTimeout(() => scrollToBottom(), 50)
-      } else {
-        const p = await r.json().catch(() => null)
-        setError(p?.error || `Server returned ${r.status}`)
-      }
-    } catch (err) {
-      console.error("image send error", err)
-      setError(err.message || "Image upload failed")
+    }, [src])
+
+    useEffect(() => { if (audioRef.current) audioRef.current.playbackRate = playbackSpeed }, [playbackSpeed])
+
+    const togglePlay = useCallback(async () => {
+      if (!audioRef.current) return
+      try {
+        audioRef.current.playbackRate = playbackSpeed
+        if (playing) { audioRef.current.pause(); setPlaying(false) } else { await audioRef.current.play(); setPlaying(true) }
+      } catch (e) { console.error("play error", e); setError("Playback failed.") }
+    }, [playing, playbackSpeed])
+
+    const toggleMute = () => { if (!audioRef.current) return; audioRef.current.muted = !audioRef.current.muted; setMuted(audioRef.current.muted) }
+
+    const getClientX = (e) => (e.touches && e.touches[0]) ? e.touches[0].clientX : e.clientX
+
+    const onProgressClick = (e) => {
+      if (!audioRef.current || !progressRef.current) return
+      const rect = progressRef.current.getBoundingClientRect()
+      const x = (getClientX(e) - rect.left)
+      const ratio = Math.max(0, Math.min(1, x / rect.width))
+      const newTime = ratio * (duration || 0)
+      audioRef.current.currentTime = newTime
+      setCurrent(newTime)
     }
-  }
 
-  // Recording voice message
-  async function startRecording() {
-    setError(null)
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const mediaRecorder = new MediaRecorder(stream)
-      recordedChunksRef.current = []
-      mediaRecorder.addEventListener("dataavailable", (ev) => {
-        if (ev.data && ev.data.size > 0) recordedChunksRef.current.push(ev.data)
-      })
-      mediaRecorder.addEventListener("stop", async () => {
-        try {
-          const blob = new Blob(recordedChunksRef.current, { type: "audio/webm" })
-          const file = new File([blob], `voice-${Date.now()}.webm`, { type: blob.type })
-          await handleImageSelected(file) // reuse upload/send logic (name is generic)
-        } catch (err) {
-          console.error("record stop error", err)
-        } finally {
-          setRecording(false)
-          try { stream.getTracks().forEach(t => t.stop()) } catch (e) {}
-        }
-      })
-      mediaRecorderRef.current = mediaRecorder
-      mediaRecorder.start()
-      setRecording(true)
-    } catch (err) {
-      console.error("startRecording error", err)
-      setError("Could not start audio recording (permission denied or unsupported).")
-      setRecording(false)
+    const onDragStart = (e) => { draggingRef.current = true; e.preventDefault() }
+    const onDragMove = (e) => {
+      if (!draggingRef.current || !progressRef.current) return
+      const clientX = getClientX(e)
+      const rect = progressRef.current.getBoundingClientRect()
+      const x = (clientX - rect.left)
+      const ratio = Math.max(0, Math.min(1, x / rect.width))
+      const newTime = ratio * (duration || 0)
+      setCurrent(newTime)
     }
-  }
+    const onDragEnd = (e) => {
+      if (!draggingRef.current || !progressRef.current || !audioRef.current) { draggingRef.current = false; return }
+      const clientX = getClientX(e)
+      const rect = progressRef.current.getBoundingClientRect()
+      const x = (clientX - rect.left)
+      const ratio = Math.max(0, Math.min(1, x / rect.width))
+      const newTime = ratio * (duration || 0)
+      audioRef.current.currentTime = newTime
+      setCurrent(newTime)
+      draggingRef.current = false
+    }
 
-  function stopRecording() {
-    try {
-      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-        mediaRecorderRef.current.stop()
-      }
-    } catch (e) {}
-  }
+    const progressPct = duration ? Math.min(100, Math.max(0, (current / duration) * 100)) : 0
 
-  // file input change handler
-  function onFileInputChange(e) {
-    const f = e.target.files && e.target.files[0]
-    if (f) handleImageSelected(f)
-    e.target.value = null
+    return (
+      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', width: '100%' }}>
+        <Box
+          sx={{
+            bgcolor: '#dcf8c6',
+            borderRadius: '18px',
+            px: 1.25,
+            py: 0.75,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            minWidth: 260,
+            maxWidth: { xs: '95vw', sm: 520 },
+            boxShadow: '0 1px 0 rgba(0,0,0,0.06)'
+          }}
+        >
+          <IconButton size="medium" onClick={togglePlay} sx={{ p: 0.5 }}>
+            {playing ? <PauseIcon fontSize="medium" /> : <PlayArrowIcon fontSize="medium" />}
+          </IconButton>
+
+          {/* visible indicator */}
+          <Box sx={{ width: 10, height: 10, bgcolor: '#000', borderRadius: '50%' }} />
+
+          {/* larger progress bar with draggable knob */}
+          <Box
+            ref={progressRef}
+            onClick={onProgressClick}
+            onMouseDown={onDragStart}
+            onMouseMove={(e) => { if (draggingRef.current) onDragMove(e) }}
+            onMouseUp={onDragEnd}
+            onTouchStart={onDragStart}
+            onTouchMove={onDragMove}
+            onTouchEnd={onDragEnd}
+            sx={{
+              height: 10,
+              bgcolor: 'rgba(0,0,0,0.06)',
+              borderRadius: 6,
+              flex: 1,
+              position: 'relative',
+              cursor: 'pointer',
+              overflow: 'visible'
+            }}
+          >
+            <Box sx={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${progressPct}%`, bgcolor: 'rgba(0,0,0,0.38)', transition: 'width 100ms linear', borderRadius: 6 }} />
+            {/* draggable knob */}
+            <Box
+              onMouseDown={onDragStart}
+              onTouchStart={onDragStart}
+              onMouseMove={(e) => { if (draggingRef.current) onDragMove(e) }}
+              onTouchMove={onDragMove}
+              onMouseUp={onDragEnd}
+              onTouchEnd={onDragEnd}
+              sx={{
+                position: 'absolute',
+                left: `${progressPct}%`,
+                top: '50%',
+                transform: 'translate(-50%, -50%)',
+                width: 14,
+                height: 14,
+                bgcolor: '#fff',
+                border: '2px solid rgba(0,0,0,0.4)',
+                borderRadius: '50%',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
+                touchAction: 'none'
+              }}
+            />
+          </Box>
+
+          <IconButton size="small" onClick={toggleMute} sx={{ p: 0.5 }}>
+            <VolumeUpIcon fontSize="small" />
+          </IconButton>
+
+          {/* menu: playback speed and download */}
+          <IconButton size="small" sx={{ p: 0.5 }} onClick={openMenu} aria-controls={menuAnchor ? 'voice-menu' : undefined} aria-haspopup="true">
+            <MoreVertIcon fontSize="small" />
+          </IconButton>
+          <Menu id="voice-menu" anchorEl={menuAnchor} open={Boolean(menuAnchor)} onClose={closeMenu}>
+            {speeds.map((s) => (
+              <MenuItem key={s} selected={s === playbackSpeed} onClick={() => onSelectSpeed(s)}>
+                <ListItemText>{`${s}x`}</ListItemText>
+              </MenuItem>
+            ))}
+            <MenuItem onClick={onDownload}>
+              <ListItemIcon><DownloadIcon fontSize="small" /></ListItemIcon>
+              <ListItemText>Download</ListItemText>
+            </MenuItem>
+          </Menu>
+
+          <Box sx={{ ml: 0.5 }}>
+            <Typography variant="caption" sx={{ fontSize: 12 }}>{playbackSpeed}x</Typography>
+          </Box>
+        </Box>
+
+        {/* timestamp under bubble: current / total (seconds -> mm:ss) */}
+        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5 }}>
+          {formatSeconds(current)} / {formatSeconds(duration)}
+        </Typography>
+      </Box>
+    )
   }
 
   return (
@@ -305,13 +613,23 @@ export default function ChatClient({ receiver: receiverFromServer = null, receiv
                   {/* render attachments */}
                   {Array.isArray(m.attachments) && m.attachments.map((a, i) => {
                     if (a.type === "image") {
-                      return <Box key={i} sx={{ mt: 1 }}><img src={a.url} alt={a.filename || "image"} style={{ maxWidth: "240px", borderRadius: 6 }} /></Box>
+                      return (
+                        <Box key={i} sx={{ mt: 1 }}>
+                          <img
+                            src={a.url}
+                            alt={a.filename || "image"}
+                            style={{ maxWidth: "240px", borderRadius: 6, cursor: "pointer" }}
+                            onClick={() => openPreview(a.url, a.filename)}
+                          />
+                        </Box>
+                      )
                     }
                     if (a.type === "audio") {
-                      return <Box key={i} sx={{ mt: 1 }}><audio controls src={a.url} /></Box>
+                      // use the compact WhatsApp-like voice UI
+                      return <Box key={i} sx={{ mt: 1 }}><VoiceBubble src={a.url} filename={a.filename} /></Box>
                     }
-                    // fallback: show link
-                    return <Box key={i} sx={{ mt: 1 }}><a href={a.url} target="_blank" rel="noreferrer">{a.filename || a.url}</a></Box>
+                    // fallback: show link with download
+                    return <Box key={i} sx={{ mt: 1 }}><a href={a.url} target="_blank" rel="noreferrer" onClick={(ev)=>{ev.preventDefault(); downloadFile(a.url, a.filename)}}>{a.filename || a.url}</a></Box>
                   })}
                   <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
                     {m.sentAt ? new Date(m.sentAt).toLocaleString() : ""}
@@ -324,7 +642,32 @@ export default function ChatClient({ receiver: receiverFromServer = null, receiv
         <div ref={messagesEndRef} />
       </Box>
 
-      {/* Composer fixed to bottom */}
+      {/* Preview overlay */}
+      {previewImageUrl ? (
+        <Box
+          sx={{
+            position: "fixed",
+            inset: 0,
+            bgcolor: "rgba(0,0,0,0.6)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 9999,
+            p: 2
+          }}
+          onClick={() => { setPreviewImageUrl(null); setPreviewFilename(null) }}
+        >
+          <Box sx={{ bgcolor: "#fff", borderRadius: 2, p: 1, maxWidth: "95%", maxHeight: "95%" }} onClick={(e)=>e.stopPropagation()}>
+            <img src={previewImageUrl} alt={previewFilename || "preview"} style={{ maxWidth: "100%", maxHeight: "80vh", display: "block", marginBottom: 8 }} />
+            <Box sx={{ display: "flex", gap: 1, justifyContent: "flex-end" }}>
+              <Button variant="outlined" onClick={() => downloadFile(previewImageUrl, previewFilename || 'image')}>Download</Button>
+              <Button variant="contained" onClick={() => { setPreviewImageUrl(null); setPreviewFilename(null) }}>Close</Button>
+            </Box>
+          </Box>
+        </Box>
+      ) : null}
+
+      {/* Composer fixed to bottom (old UI look) */}
       <Box sx={{ borderTop: "1px solid #eee", p: 1, display: "flex", gap: 1, alignItems: "center" }}>
         <input type="file" accept="image/*,audio/*" ref={fileInputRef} style={{ display: "none" }} onChange={onFileInputChange} />
         <IconButton onClick={() => fileInputRef.current && fileInputRef.current.click()} title="Attach photo or audio">
@@ -334,6 +677,11 @@ export default function ChatClient({ receiver: receiverFromServer = null, receiv
         <IconButton onClick={() => { recording ? stopRecording() : startRecording() }} color={recording ? "error" : "default"} title={recording ? "Stop recording" : "Record voice"}>
           {recording ? <StopIcon /> : <MicIcon />}
         </IconButton>
+
+        {/* show recording duration when recording */}
+        <Box sx={{ minWidth: 56 }}>
+          {recording ? <Typography variant="caption" color="error">{formatElapsed(recordElapsedMs)}</Typography> : null}
+        </Box>
 
         <TextField
           placeholder="Type a message..."

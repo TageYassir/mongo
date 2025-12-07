@@ -236,7 +236,7 @@ export default function FriendProfilePage() {
 
   const openChat = () => {
     if (!targetId) return
-    router.push(`/uis/chat/${encodeURIComponent(targetId)}`)
+    router.push(`/uis/user-space/chat/${encodeURIComponent(targetId)}`)
   }
 
   if (loading) {
@@ -257,7 +257,7 @@ export default function FriendProfilePage() {
         <Button 
           variant="contained" 
           sx={{ mt: 2 }}
-          onClick={() => router.push('/uis/all-users')}
+          onClick={() => router.push('/uis/user-space/all-users')}
         >
           Back to All Users
         </Button>

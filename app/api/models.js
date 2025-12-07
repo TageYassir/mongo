@@ -68,14 +68,25 @@ const postSchema = new mongoose.Schema({
  * Fields:
  * - senderId: ObjectId (ref User)
  * - receiverId: ObjectId (ref User)
- * - text: String
+ * - text: String (optional)
  * - sentAt: Date
+ * - attachments: array of files { type, url, filename, size, mimeType }
  */
+const attachmentSubSchema = new mongoose.Schema({
+  _id: false,
+  type: { type: String }, // 'image' | 'audio' | other
+  url: { type: String, required: true },
+  filename: { type: String },
+  size: { type: Number },
+  mimeType: { type: String },
+}, { _id: false });
+
 const messageSchema = new mongoose.Schema({
   senderId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   receiverId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-  text: { type: String, required: true },
+  text: { type: String, required: false, default: "" }, // optional now
   sentAt: { type: Date, required: true, default: Date.now },
+  attachments: { type: [attachmentSubSchema], default: [] },
 }, { timestamps: true });
 
 /**

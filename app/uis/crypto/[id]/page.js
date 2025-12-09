@@ -20,9 +20,6 @@ export default function CryptoDetailSimple() {
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // new state: transactions (chart removed)
-  const [transactions, setTransactions] = useState([]);
-
   const hasWindow = typeof window !== 'undefined';
   const hasDocument = typeof document !== 'undefined';
   const COOKIE_KEY = 'userId';
@@ -130,49 +127,6 @@ export default function CryptoDetailSimple() {
     return null;
   }
 
-  // helper: load transactions for user/wallet (resilient endpoints)
-  async function loadTransactionsFor(userIdParam, walletIdParam) {
-    if (!userIdParam && !walletIdParam) return setTransactions([]);
-    const candidates = [
-      `/api/crypto/transactions?userId=${encodeURIComponent(String(userIdParam || ''))}`,
-      `/api/crypto/transactions?walletId=${encodeURIComponent(String(walletIdParam || ''))}`,
-      `/api/transactions?userId=${encodeURIComponent(String(userIdParam || ''))}`,
-      `/api/transactions?walletId=${encodeURIComponent(String(walletIdParam || ''))}`,
-      `/api/crypto/wallets/${encodeURIComponent(String(walletIdParam))}/transactions`,
-      `/api/wallets/${encodeURIComponent(String(walletIdParam))}/transactions`,
-      `/api/users/${encodeURIComponent(String(userIdParam))}/transactions`,
-      `/api/transactions/user/${encodeURIComponent(String(userIdParam))}`
-    ];
-    for (const p of candidates) {
-      try {
-        const json = await tryFetchJson(p);
-        if (!json) continue;
-        // normalize: array or { transactions: [...]} or { data: [...] }
-        const arr = Array.isArray(json) ? json : (json.transactions || json.data || json.items || null);
-        if (Array.isArray(arr) && arr.length) {
-          // normalize each tx
-          const norm = arr.map(tx => ({
-            id: tx.id || tx._id || tx.transactionId || tx.txId || String(Math.random()).slice(2),
-            amount: Number(tx.amount ?? tx.value ?? 0),
-            fromWalletId: tx.fromWalletId || tx.from || tx.sender || null,
-            toWalletId: tx.toWalletId || tx.to || tx.receiver || null,
-            status: tx.status || (tx.success ? 'ok' : 'unknown'),
-            createdAt: tx.createdAt || tx.timestamp || tx.date || tx.time || null,
-            raw: tx
-          }));
-          // sort desc by date
-          norm.sort((a,b) => (new Date(b.createdAt || 0)) - (new Date(a.createdAt || 0)));
-          setTransactions(norm);
-          return;
-        }
-      } catch (e) {
-        // try next
-      }
-    }
-    // no transactions found
-    setTransactions([]);
-  }
-
   // load connected user and wallet on mount
   useEffect(() => {
     let mounted = true;
@@ -230,16 +184,6 @@ export default function CryptoDetailSimple() {
      return () => { mounted = false; };
      // eslint-disable-next-line react-hooks/exhaustive-deps
    }, []);
-
-  // when wallet/user changes, load transactions
-  useEffect(() => {
-    if (wallet || userId) {
-      loadTransactionsFor(userId, wallet?.walletId);
-    } else {
-      setTransactions([]);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wallet, userId]);
 
   // create wallet (use server only; do not persist to localStorage)
   async function handleCreateWallet() {
@@ -403,19 +347,6 @@ export default function CryptoDetailSimple() {
             setRecipient('');
             setMessage({ type: 'success', text: `Sent ${amt} to ${recipient} (server).` });
             setLoading(false);
-
-            // optimistic: add tx to history
-            const now = Date.now();
-            const tx = {
-              id: resp.transactionId || resp.txId || `tx-${now}`,
-              amount: amt,
-              fromWalletId: wallet.walletId,
-              toWalletId: recipient,
-              status: 'ok',
-              createdAt: new Date().toISOString(),
-              raw: resp
-            };
-            setTransactions(prev => [tx, ...(prev || [])]);
             return;
           }
 
@@ -431,32 +362,9 @@ export default function CryptoDetailSimple() {
               const w = ref.wallet || ref;
               const norm = w.walletId ? w : { ...w, walletId: w.walletId || w.id || w._id };
               setWallet(norm);
-              // update history
-              const now = Date.now();
-              const tx = {
-                id: resp.transactionId || resp.txId || `tx-${now}`,
-                amount: amt,
-                fromWalletId: wallet.walletId,
-                toWalletId: recipient,
-                status: resp.success ? 'ok' : (resp.status || 'ok'),
-                createdAt: new Date().toISOString(),
-                raw: resp
-              };
-              setTransactions(prev => [tx, ...(prev || [])]);
             } else {
               // optimistic UI update if server gave only generic success
               setWallet(prev => (prev ? { ...prev, balance: Number(prev.balance) - amt } : prev));
-              const now = Date.now();
-              const tx = {
-                id: resp.transactionId || resp.txId || `tx-${now}`,
-                amount: amt,
-                fromWalletId: wallet.walletId,
-                toWalletId: recipient,
-                status: 'ok',
-                createdAt: new Date().toISOString(),
-                raw: resp
-              };
-              setTransactions(prev => [tx, ...(prev || [])]);
             }
 
             setAmount('');
@@ -562,37 +470,6 @@ export default function CryptoDetailSimple() {
         >
           Create wallet (default balance 10)
         </button>
-      </div>
-
-      {/* Transactions panel (responsive) */}
-      <div style={{ marginBottom: 16 }}>
-        <div style={{ padding: 12, border: '1px solid #eee', borderRadius: 8 }}>
-          <div style={{ marginBottom: 8, fontWeight: 600 }}>Recent transactions</div>
-          {transactions && transactions.length > 0 ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 280, overflowY: 'auto' }}>
-              {transactions.map(tx => {
-                const isOut = String(tx.fromWalletId) === String(wallet?.walletId);
-                const date = new Date(tx.createdAt || tx.raw?.createdAt || tx.raw?.timestamp || Date.now());
-                return (
-                  <div key={tx.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', padding: '8px', borderRadius: 6, background: '#fafafa' }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600 }}>{isOut ? 'Sent' : 'Received'} {Number(tx.amount || 0)}</div>
-                      <div style={{ fontSize: 12, color: '#666', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {isOut ? `to ${tx.toWalletId}` : `from ${tx.fromWalletId}`}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right', minWidth: 96 }}>
-                      <div style={{ fontSize: 12, color: tx.status === 'ok' ? '#064' : '#a33' }}>{tx.status}</div>
-                      <div style={{ fontSize: 11, color: '#888' }}>{date.toLocaleString()}</div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div style={{ color: '#666', fontSize: 13 }}>No recent transactions found.</div>
-          )}
-        </div>
       </div>
 
       <div style={{ padding: 12, border: '1px solid #eee', borderRadius: 8, maxWidth: '100%' }}>

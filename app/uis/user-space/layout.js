@@ -358,7 +358,7 @@ export default function RootLayout({ children }) {
                       </MenuItem>
                     ))}
                     <MenuItem>
-                      <Button size="small" onClick={() => { closeMenu(); router.push('/uis/all-users') }}>Browse users</Button>
+                      <Button size="small" onClick={() => { closeMenu(); router.push('/uis/user-space/all-users') }}>Browse users</Button>
                     </MenuItem>
                   </Menu>
                 </Box>

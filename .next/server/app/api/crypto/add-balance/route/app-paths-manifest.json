@@ -1,0 +1,3 @@
+{
+  "/api/crypto/add-balance/route": "app/api/crypto/add-balance/route.js"
+}

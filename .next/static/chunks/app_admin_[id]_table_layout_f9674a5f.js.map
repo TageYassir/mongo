@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 4, "column": 0}, "map": {"version":3,"sources":["file:///D:/Saas_MongoDB/mongo/app/admin/%5Bid%5D/table/layout.js"],"sourcesContent":["\"use client\"\r\n\r\nimport * as React from \"react\"\r\nimport { CssBaseline } from \"@mui/material\"\r\n\r\nexport default function RootLayout({ children }) {\r\n  return (\r\n    <html lang=\"fr\">\r\n      <body>\r\n        <CssBaseline />\r\n        {children}\r\n      </body>\r\n    </html>\r\n  )\r\n}"],"names":[],"mappings":";;;;;AAEA;AACA;AAHA;;;;AAKe,SAAS,WAAW,KAAY;QAAZ,EAAE,QAAQ,EAAE,GAAZ;IACjC,qBACE,6LAAC;QAAK,MAAK;kBACT,cAAA,6LAAC;;8BACC,6LAAC,kOAAW;;;;;gBACX;;;;;;;;;;;;AAIT;KATwB","debugId":null}}]
+}

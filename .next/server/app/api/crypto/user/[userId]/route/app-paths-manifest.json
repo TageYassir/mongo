@@ -1,0 +1,3 @@
+{
+  "/api/crypto/user/[userId]/route": "app/api/crypto/user/[userId]/route.js"
+}

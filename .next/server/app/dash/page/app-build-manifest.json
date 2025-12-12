@@ -1,0 +1,33 @@
+{
+  "pages": {
+    "/dash/page": [
+      "static/chunks/app_globals_71f961d1.css",
+      "static/chunks/node_modules_next_dist_8db7fb1f._.js",
+      "static/chunks/app_layout_0a548d63.js",
+      "static/chunks/node_modules_next_dist_client_components_builtin_global-error_149f6574.js",
+      "static/chunks/node_modules_14facf97._.js",
+      "static/chunks/app_dash_layout_c047377b.js",
+      "static/chunks/app_dash_layout_149f6574.js",
+      "static/chunks/node_modules_@mui_material_esm_d4523d52._.js",
+      "static/chunks/node_modules_@mui_x-charts_esm_internals_d320c386._.js",
+      "static/chunks/node_modules_@mui_x-charts_esm_ChartsTooltip_c1720de4._.js",
+      "static/chunks/node_modules_@mui_x-charts_esm_PieChart_cf1e74fb._.js",
+      "static/chunks/node_modules_@mui_x-charts_esm_BarChart_affc8727._.js",
+      "static/chunks/node_modules_@mui_x-charts_esm_b294a6cb._.js",
+      "static/chunks/node_modules_@popperjs_core_lib_ce7e5cb7._.js",
+      "static/chunks/node_modules_@mui_x-internal-gestures_esm_core_8d52a08c._.js",
+      "static/chunks/node_modules_18e2a48a._.js",
+      "static/chunks/app_dash_page_71bceb83.js",
+      "static/chunks/app_dash_page_fe9e3e06.js",
+      "static/chunks/[turbopack]_browser_dev_hmr-client_hmr-client_ts_57d40746._.js",
+      "static/chunks/node_modules_next_dist_compiled_react-dom_1e674e59._.js",
+      "static/chunks/node_modules_next_dist_compiled_next-devtools_index_a9cb0712.js",
+      "static/chunks/node_modules_next_dist_compiled_5150ccfd._.js",
+      "static/chunks/node_modules_next_dist_client_cf1d9188._.js",
+      "static/chunks/node_modules_next_dist_b0daae9a._.js",
+      "static/chunks/node_modules_@swc_helpers_cjs_b3dc30d6._.js",
+      "static/chunks/_a0ff3932._.js",
+      "static/chunks/turbopack-_cdba956c._.js"
+    ]
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 3, "column": 0}, "map": {"version":3,"sources":["file:///D:/Saas_MongoDB/mongo/app/layout.js"],"sourcesContent":["// (file intentionally left blank)"],"names":[],"mappings":"AAAA,kCAAkC","debugId":null}}]
+}

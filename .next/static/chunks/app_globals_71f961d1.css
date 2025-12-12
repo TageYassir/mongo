@@ -1,0 +1,18 @@
+/* [project]/app/globals.css [app-client] (css) */
+html, body {
+  -webkit-overflow-scrolling: auto;
+  height: 100%;
+  overflow: hidden;
+}
+
+#__next, #root, main {
+  height: 100%;
+  overflow: hidden;
+}
+
+.allow-scroll {
+  -webkit-overflow-scrolling: touch;
+  overflow: auto !important;
+}
+
+/*# sourceMappingURL=app_globals_71f961d1.css.map*/

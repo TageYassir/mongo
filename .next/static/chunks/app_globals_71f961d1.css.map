@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 1, "column": 0}, "map": {"version":3,"sources":["file:///D:/Saas_MongoDB/mongo/app/globals.css"],"sourcesContent":["/* Global styles - blocks page scrolling across the entire app */\r\n:root {\r\n  /* keep default -- you can add other variables here if needed */\r\n}\r\n\r\n/* Prevent scrolling for the whole application */\r\nhtml, body {\r\n  height: 100%;\r\n  overflow: hidden; /* <-- THIS blocks vertical and horizontal scrolling */\r\n  -webkit-overflow-scrolling: auto;\r\n}\r\n\r\n/* If your app injects a root div, ensure it fills the height as well */\r\n#__next, #root, main {\r\n  height: 100%;\r\n  overflow: hidden;\r\n}\r\n\r\n/* If you want to allow specific inner scrollable regions,\r\n   give them a class like .allow-scroll and explicitly enable overflow */\r\n.allow-scroll {\r\n  overflow: auto !important;\r\n  -webkit-overflow-scrolling: touch;\r\n}"],"names":[],"mappings":"AAMA;;;;;;AAOA;;;;;AAOA","debugId":null}}]
+}

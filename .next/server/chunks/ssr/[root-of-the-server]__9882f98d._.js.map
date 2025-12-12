@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 3, "column": 0}, "map": {"version":3,"sources":[],"names":[],"mappings":"","debugId":null}},
+    {"offset": {"line": 25, "column": 0}, "map": {"version":3,"sources":["file:///D:/Saas_MongoDB/mongo/app/uis/user-space/chat/page.js"],"sourcesContent":["import React from \"react\";\r\nimport ConversationsList from \"./ConversationsList.js\";\r\n\r\nexport default function ChatIndexPage() {\r\n  return <ConversationsList />;\r\n}"],"names":[],"mappings":";;;;;AAAA;AACA;;;;AAEe,SAAS;IACtB,qBAAO,8OAAC,yKAAiB;;;;;AAC3B","debugId":null}}]
+}

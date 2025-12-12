@@ -1,0 +1,3 @@
+{
+  "/api/crypto/create-wallet/route": "app/api/crypto/create-wallet/route.js"
+}

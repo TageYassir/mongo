@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 4, "column": 0}, "map": {"version":3,"sources":["file:///D:/Saas_MongoDB/mongo/app/uis/user-space/settings/page.js"],"sourcesContent":["\"use client\"\n\n/** React MUI Imports */\nimport { Button, colors, ListItemText, Avatar, List, Typography, ListItem, ListItemAvatar, Paper, Badge } from \"@mui/material\"\n/** Next Imports */\nimport Image from \"next/image\"\n/** React Imports */\nimport { useState } from \"react\"\n/** Next Nagivation */\nimport { useRouter } from \"next/navigation\"\n/** Icons Imports */\nimport { AdjustOutlined, CenterFocusStrongOutlined, Circle, MailOutline, Settings } from \"@mui/icons-material\"\n/** Moment Imports */\nimport moment from \"moment\"\n\nexport default function Page() {\n  /** */\n  const router = useRouter()\n\n\n  return(\n    <Typography variant=\"h5\">Settings</Typography>\n  ) \n}\n"],"names":[],"mappings":";;;;;AAEA,sBAAsB,GACtB;AACA,iBAAiB,GACjB;AACA,kBAAkB,GAClB;AACA,oBAAoB,GACpB;AAGA,mBAAmB,GACnB;;;AAbA;;;;;;;;;;;AAee,SAAS;;IACtB,IAAI,GACJ,MAAM,SAAS,IAAA,kJAAS;IAGxB,qBACE,6LAAC,8NAAU;QAAC,SAAQ;kBAAK;;;;;;AAE7B;GARwB;;QAEP,kJAAS;;;KAFF","debugId":null}}]
+}

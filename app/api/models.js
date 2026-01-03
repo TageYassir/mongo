@@ -75,14 +75,17 @@ const attachmentSubSchema = new mongoose.Schema({
   mimeType: { type: String },
 }, { _id: false });
 
+// (excerpt showing the modified messageSchema)
 const messageSchema = new mongoose.Schema({
   senderId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   receiverId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   text: { type: String, required: false, default: "" }, // optional now
   sentAt: { type: Date, required: true, default: Date.now },
   attachments: { type: [attachmentSubSchema], default: [] },
+  // New: isSeen flags whether the receiver has seen/read the message.
+  // Default is false; older documents without the field will be treated as unseen by client logic.
+  isSeen: { type: Boolean, default: false },
 }, { timestamps: true });
-
 /**
  * Friend (friendship) schema - stores friend requests and accepted/refused relationships
  * Fields:

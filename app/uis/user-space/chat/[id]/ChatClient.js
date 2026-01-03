@@ -15,13 +15,8 @@ import DownloadIcon from "@mui/icons-material/Download"
 /**
  * ChatClient
  *
- * - Restores the previous "old" UI layout / look & flow you had originally:
- *   header, message list area with simple bubbles, composer fixed to bottom with attach/record/send.
- * - Keeps the improved voice-note UI (compact WhatsApp-like pill) with a scrub-able progress bar,
- *   play/pause, mute and a three-dot menu — matching the vocal style you provided.
- * - Keeps image preview, file upload, recording/uploading flow and mobile-friendly touches.
- *
- * Note: relies on /api/messages and /api/messages/upload similar to your original implementation.
+ * Same as your original file but with a more reliable visibility-based mark-as-seen implementation.
+ * Only the mark-as-seen behavior was changed; UI and other logic preserved.
  */
 
 export default function ChatClient({ receiver: receiverFromServer = null, receiverId: receiverProp = null }) {
@@ -60,6 +55,10 @@ export default function ChatClient({ receiver: receiverFromServer = null, receiv
 
   const messagesEndRef = useRef(null)
   const fileInputRef = useRef(null)
+
+  // ref for the scrollable messages container (we'll observe its visibility)
+  const messagesContainerRef = useRef(null)
+  const markedOnceRef = useRef(false) // ensure we only auto-mark once per mount
 
   useEffect(() => {
     async function loadCurrentUser() {
@@ -156,6 +155,8 @@ export default function ChatClient({ receiver: receiverFromServer = null, receiv
         clearInterval(recordIntervalRef.current)
         recordIntervalRef.current = null
       }
+      // reset markedOnceRef for future mounts
+      markedOnceRef.current = false
     }
   }, [])
 
@@ -409,6 +410,95 @@ export default function ChatClient({ receiver: receiverFromServer = null, receiv
     }
   }
 
+  // Robust visibility-based "mark-as-seen" logic:
+  useEffect(() => {
+    // prerequisites
+    if (!messagesContainerRef.current) return
+    if (!currentUserId || !receiverId) return
+    if (!messages || messages.length === 0) return
+    if (markedOnceRef.current) return
+
+    // helper to get IDs that should be marked: received by current user && not isSeen
+    const computeIdsToMark = () => {
+      return messages
+        .filter(m => {
+          const receiverRaw = m.receiverId && typeof m.receiverId === 'object' ? (m.receiverId._id || m.receiverId.id) : m.receiverId
+          const receiverStr = receiverRaw ? String(receiverRaw) : null
+          const isReceived = String(receiverStr) === String(currentUserId)
+          const isSeen = m.isSeen === true
+          return isReceived && !isSeen
+        })
+        .map(m => m._id || m.id)
+        .filter(Boolean)
+    }
+
+    // check visibility synchronously (with a tiny delay to let the browser render)
+    const isVisibleNow = () => {
+      try {
+        const el = messagesContainerRef.current
+        if (!el) return false
+        const rect = el.getBoundingClientRect()
+        return rect.top < (window.innerHeight || document.documentElement.clientHeight) && rect.bottom > 0
+      } catch (e) {
+        return false
+      }
+    }
+
+    const tryMark = async (idsToMark) => {
+      if (!idsToMark || idsToMark.length === 0) return
+      markedOnceRef.current = true
+      try {
+        await fetch('/api/messages/mark-seen', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messageIds: idsToMark, userId: currentUserId })
+        }).catch(() => {})
+        // update local state
+        setMessages(prev => prev.map(m => (idsToMark.includes(m._id || m.id) ? { ...m, isSeen: true } : m)))
+        // notify other UI (e.g., layout badge)
+        try { window.dispatchEvent(new CustomEvent('friend-request-changed')) } catch (e) {}
+      } catch (err) {
+        console.warn('mark-seen failed', err)
+      }
+    }
+
+    // small timeout to allow the DOM to settle; if visible then mark now
+    const immediateCheckTimer = setTimeout(() => {
+      if (markedOnceRef.current) return
+      const ids = computeIdsToMark()
+      if (ids.length === 0) return
+      if (isVisibleNow()) {
+        tryMark(ids)
+        return
+      }
+      // else install observer to mark once it becomes visible
+      const observer = new IntersectionObserver((entries) => {
+        const ent = entries && entries[0]
+        if (!ent) return
+        if (ent.isIntersecting) {
+          try {
+            // compute again in case messages changed
+            const idsNow = computeIdsToMark()
+            if (idsNow.length > 0) tryMark(idsNow)
+          } finally {
+            try { observer.disconnect() } catch (e) {}
+          }
+        }
+      }, { root: null, threshold: 0.05 })
+      try {
+        observer.observe(messagesContainerRef.current)
+      } catch (e) {
+        console.warn('observer observe failed', e)
+      }
+    }, 120) // 120ms small delay
+
+    return () => {
+      clearTimeout(immediateCheckTimer)
+      // don't attempt to reset markedOnceRef here (we clear on unmount in cleanup effect)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, currentUserId, receiverId])
+
   // Compact WhatsApp-like audio UI used inside message bubbles.
   function VoiceBubble({ src, filename }) {
     const audioRef = useRef(null)
@@ -602,7 +692,7 @@ export default function ChatClient({ receiver: receiverFromServer = null, receiv
       </Box>
 
       {/* Messages area - grows and scrolls */}
-      <Box sx={{ flex: 1, overflowY: "auto", p: 2, bgcolor: "#fafafa" }}>
+      <Box ref={messagesContainerRef} sx={{ flex: 1, overflowY: "auto", p: 2, bgcolor: "#fafafa" }}>
         <List>
           {messages.map((m, idx) => {
             const isMe = String(m.senderId) === String(currentUserId)

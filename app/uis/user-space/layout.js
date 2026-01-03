@@ -1,7 +1,7 @@
 'use client'
 
 import { MessageOutlined, PeopleOutline, CurrencyBitcoinOutlined, HomeOutlined, AccountCircleOutlined, NotificationsOutlined as NotificationsIcon } from "@mui/icons-material";
-import { AppBar, Box, Button, IconButton, Stack, Toolbar, Typography, Paper, BottomNavigation, BottomNavigationAction, Badge, Menu, MenuItem } from "@mui/material";
+import { AppBar, Box, Button, IconButton, Stack, Toolbar, Typography, Paper, BottomNavigation, BottomNavigationAction, Badge } from "@mui/material";
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useCallback } from "react";
 
@@ -9,12 +9,12 @@ export default function RootLayout({ children }) {
   const router = useRouter();
 
   // Notifications / invitations state (improved)
-  const [anchorEl, setAnchorEl] = useState(null)
   const [invitations, setInvitations] = useState([])
   const [currentUserId, setCurrentUserId] = useState(null)
   const [loading, setLoading] = useState(true)
   const [processingId, setProcessingId] = useState(null)
   const [value, setValue] = useState(0);
+  const [unreadCount, setUnreadCount] = useState(0)
 
   // ---------------------------------------------------------------------------
   // Helpers: resolve current user id from server/local state
@@ -72,6 +72,38 @@ export default function RootLayout({ children }) {
     }
   }, [])
 
+  // ---------------------------------------------------------------------------
+  // Unread messages count (received by current user and isSeen !== true)
+  // ---------------------------------------------------------------------------
+  const fetchUnreadCount = useCallback(async (uid) => {
+    if (!uid) {
+      setUnreadCount(0)
+      return
+    }
+    try {
+      const res = await fetch(`/api/messages?operation=get-by-user&userId=${encodeURIComponent(uid)}`)
+      if (!res.ok) {
+        setUnreadCount(0)
+        return
+      }
+      const payload = await res.json().catch(() => null)
+      const msgs = Array.isArray(payload?.messages) ? payload.messages : []
+      let count = 0
+      msgs.forEach(m => {
+        // determine receiver id (handle populated or plain)
+        const rec = m.receiverId || (m.receiver && (m.receiver._id || m.receiver.id)) || null
+        const recId = rec && typeof rec === 'object' ? (rec._id || rec.id) : rec
+        if (String(recId) !== String(uid)) return
+        if (m.isSeen === true) return
+        count += 1
+      })
+      setUnreadCount(count)
+    } catch (e) {
+      console.warn('fetchUnreadCount error', e)
+      setUnreadCount(0)
+    }
+  }, [])
+
   useEffect(() => {
     let mounted = true
     const boot = async () => {
@@ -79,47 +111,31 @@ export default function RootLayout({ children }) {
       const me = await resolveCurrentUserId()
       if (!mounted) return
       setCurrentUserId(me)
-      if (me) await fetchInvitations(me)
+      if (me) {
+        await fetchInvitations(me)
+        await fetchUnreadCount(me)
+      }
       setLoading(false)
     }
     boot()
     return () => { mounted = false }
-  }, [fetchInvitations])
+  }, [fetchInvitations, fetchUnreadCount])
 
   // re-fetch when other parts of the app dispatch this event
   useEffect(() => {
     const handler = (e) => {
       try {
-        if (currentUserId) fetchInvitations(currentUserId)
+        if (currentUserId) {
+          fetchInvitations(currentUserId)
+          fetchUnreadCount(currentUserId)
+        }
       } catch (err) {
         console.warn('friend-request-changed handler error', err)
       }
     }
     window.addEventListener('friend-request-changed', handler)
     return () => window.removeEventListener('friend-request-changed', handler)
-  }, [currentUserId, fetchInvitations])
-
-  const openMenu = (e) => setAnchorEl(e.currentTarget)
-  const closeMenu = () => setAnchorEl(null)
-
-  const respond = async (requestId, action) => {
-    setProcessingId(requestId)
-    try {
-      const res = await fetch('/api/friends', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ requestId, action }),
-      })
-      const payload = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(payload?.error || 'Failed to update invitation')
-      setInvitations((prev) => prev.filter(i => String(i._id) !== String(requestId)))
-      try { window.dispatchEvent(new CustomEvent('friend-request-changed', { detail: { action, requestId } })) } catch (e) {}
-    } catch (err) {
-      alert(err.message || 'Failed to update invitation')
-    } finally {
-      setProcessingId(null)
-    }
-  }
+  }, [currentUserId, fetchInvitations, fetchUnreadCount])
 
   // navigation helper
   function loadScreen(event, screenURL) {
@@ -157,7 +173,6 @@ export default function RootLayout({ children }) {
       ];
       cachedKeys.forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
     } catch (e) {}
-
     try { window.dispatchEvent(new CustomEvent('wallet-disconnected')); } catch (e) {}
   }
 
@@ -287,10 +302,12 @@ export default function RootLayout({ children }) {
             try { clearWalletLocalKeysForUser(oldVal); } catch (er) {}
             setCurrentUserId(newVal);
             fetchInvitations(newVal);
+            fetchUnreadCount(newVal);
           } else if (!oldVal && newVal) {
             // fresh login in another tab
             setCurrentUserId(newVal);
             fetchInvitations(newVal);
+            fetchUnreadCount(newVal);
           }
         }
 
@@ -302,6 +319,7 @@ export default function RootLayout({ children }) {
             if (newId) {
               setCurrentUserId(newId);
               fetchInvitations(newId);
+              fetchUnreadCount(newId);
             }
             if (!e.newValue) {
               // removed user
@@ -320,7 +338,7 @@ export default function RootLayout({ children }) {
       window.removeEventListener('storage', onStorage)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fetchInvitations])
+  }, [fetchInvitations, fetchUnreadCount])
 
   // ---------------------------------------------------------------------------
   // UI
@@ -338,28 +356,15 @@ export default function RootLayout({ children }) {
               <Stack direction={"row"} spacing={1} alignItems="center">
                 {/* Notifications */}
                 <Box>
-                  <IconButton onClick={openMenu} aria-label="notifications" size="large">
-                    <Badge badgeContent={invitations.length} color="error">
+                  <IconButton
+                    aria-label="notifications"
+                    size="large"
+                    onClick={() => router.push('/uis/user-space/notif')}
+                  >
+                    <Badge badgeContent={(invitations?.length || 0) + (unreadCount || 0)} color="error">
                       <NotificationsIcon />
                     </Badge>
                   </IconButton>
-
-                  <Menu anchorEl={anchorEl} open={Boolean(anchorEl)} onClose={closeMenu}>
-                    {loading && <MenuItem><Typography>Loading...</Typography></MenuItem>}
-                    {!loading && invitations.length === 0 && <MenuItem><Typography>No invitations</Typography></MenuItem>}
-                    {!loading && invitations.map((inv) => (
-                      <MenuItem key={inv._id} sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                        <Typography variant="body2">{inv.senderId?.pseudo || `${inv.senderId?.firstName || ''} ${inv.senderId?.lastName || ''}`}</Typography>
-                        <Box sx={{ display: 'flex', gap: 1 }}>
-                          <Button size="small" variant="contained" onClick={() => respond(inv._id, 'accept')} disabled={processingId === inv._id}>Accept</Button>
-                          <Button size="small" variant="outlined" onClick={() => respond(inv._id, 'refuse')} disabled={processingId === inv._id}>Refuse</Button>
-                        </Box>
-                      </MenuItem>
-                    ))}
-                    <MenuItem>
-                      <Button size="small" onClick={() => { closeMenu(); router.push('/uis/user-space/all-users') }}>Browse users</Button>
-                    </MenuItem>
-                  </Menu>
                 </Box>
 
                 <IconButton onClick={(e) => loadScreen(e, "/uis/user-space/profile")} size="large" edge="end" sx={{ ml: 1 }}>

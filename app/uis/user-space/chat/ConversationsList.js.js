@@ -24,7 +24,8 @@ import {
 } from '@mui/icons-material'
 
 /**
- * Modernized ConversationsList
+ * Modernized ConversationsList with unread-count logic added.
+ * NOTE: Design and online logic are unchanged.
  */
 
 // Helper to format time smartly
@@ -87,19 +88,37 @@ export default function ConversationsList() {
         const payload = await res.json()
         const msgs = Array.isArray(payload?.messages) ? payload.messages : []
 
+        // Build a map of peerId -> conversation info, including unreadCount
         const map = new Map()
         msgs.forEach((m) => {
-          const otherId = (String(m.senderId) === String(currentUserId)) ? String(m.receiverId) : String(m.senderId)
-          if (!otherId) return
+          // normalize sender/receiver ids (handle populated objects)
+          const senderIdRaw = m.senderId && typeof m.senderId === 'object' ? (m.senderId._id || m.senderId.id) : m.senderId
+          const receiverIdRaw = m.receiverId && typeof m.receiverId === 'object' ? (m.receiverId._id || m.receiverId.id) : m.receiverId
+          const senderStr = senderIdRaw ? String(senderIdRaw) : null
+          const receiverStr = receiverIdRaw ? String(receiverIdRaw) : null
+
+          const otherId = (String(senderStr) === String(currentUserId)) ? String(receiverStr) : String(senderStr)
+          if (!otherId || otherId === 'null' || otherId === 'undefined') return
           const existing = map.get(otherId)
           const msgTime = m.sentAt ? new Date(m.sentAt).getTime() : 0
+
+          // unread if message was received by the current user and isSeen !== true
+          const isReceived = String(receiverStr) === String(currentUserId)
+          const isSeen = m.isSeen === true
+          const unreadIncrement = (isReceived && !isSeen) ? 1 : 0
+
           if (!existing || msgTime > existing.lastAt) {
             map.set(otherId, {
               peerId: otherId,
               lastText: m.text || "",
               lastAt: msgTime,
               lastSentAtRaw: m.sentAt || null,
+              unread: (existing ? (existing.unread || 0) : 0) + unreadIncrement
             })
+          } else {
+            // just accumulate unread count if not the newest
+            existing.unread = (existing.unread || 0) + unreadIncrement
+            map.set(otherId, existing)
           }
         })
 
@@ -134,9 +153,58 @@ export default function ConversationsList() {
     loadConversations()
   }, [currentUserId])
 
-  const openConversation = (peerId) => {
+  const openConversation = async (peerId) => {
     if (!peerId) return
-    router.push(`/uis/user-space/chat/${encodeURIComponent(peerId)}`)
+
+    // Use the same robust logic as ChatClient:
+    // - fetch the conversation
+    // - compute idsToMark (received by currentUser && isSeen !== true)
+    // - call mark-seen API
+    // - update local conversations state immediately so UI doesn't show unread
+    try {
+      if (currentUserId) {
+        const convRes = await fetch(`/api/messages?operation=get-conversation&userA=${encodeURIComponent(currentUserId)}&userB=${encodeURIComponent(peerId)}`)
+        if (convRes.ok) {
+          const convPayload = await convRes.json().catch(() => null)
+          const convMsgs = Array.isArray(convPayload?.messages) ? convPayload.messages : []
+          const idsToMark = convMsgs
+            .filter(m => {
+              const receiverIdRaw = m.receiverId && typeof m.receiverId === 'object' ? (m.receiverId._id || m.receiverId.id) : m.receiverId
+              const receiverStr = receiverIdRaw ? String(receiverIdRaw) : null
+              const isReceived = String(receiverStr) === String(currentUserId)
+              const isSeen = m.isSeen === true
+              return isReceived && !isSeen
+            })
+            .map(m => m._id || m.id)
+            .filter(Boolean)
+
+          if (idsToMark.length) {
+            // best-effort: mark seen on server
+            await fetch('/api/messages/mark-seen', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ messageIds: idsToMark, userId: currentUserId })
+            }).catch(() => {})
+
+            // update local conversation unread count for immediate UI feedback
+            setConversations(prev => prev.map(c => {
+              if (!c || !c.peerId) return c
+              if (String(c.peerId) === String(peerId)) {
+                return { ...c, unread: 0 }
+              }
+              return c
+            }))
+
+            // also update any in-memory caches if you expect them elsewhere (dispatch event)
+            try { window.dispatchEvent(new CustomEvent('friend-request-changed')) } catch (e) {}
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('mark-seen pre-navigation failed', err)
+    } finally {
+      router.push(`/uis/user-space/chat/${encodeURIComponent(peerId)}`)
+    }
   }
 
   const filteredConversations = conversations.filter((c) => {
@@ -212,6 +280,7 @@ export default function ConversationsList() {
               const initial = displayName.charAt(0).toUpperCase()
               const isMale = peer?.gender === 'Male'
               const isOnline = peer?.isOnline ?? false
+              const unread = c.unread || 0
 
               return (
                 <Paper
@@ -234,32 +303,40 @@ export default function ConversationsList() {
                   }}
                 >
                   <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
+                    {/* Outer numeric badge for unread, inner dot badge for online */}
                     <Badge
+                      color="error"
+                      badgeContent={unread > 0 ? unread : null}
                       overlap="circular"
-                      anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-                      variant="dot"
-                      sx={{ 
-                        '& .MuiBadge-badge': { 
-                          bgcolor: isOnline ? '#44b700' : '#bdbdbd', 
-                          border: '2px solid white',
-                          boxShadow: `0 0 0 1px ${isOnline ? '#44b700' : '#bdbdbd'}`
-                        } 
-                      }}
+                      anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
                     >
-                      <Avatar 
+                      <Badge
+                        overlap="circular"
+                        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                        variant="dot"
                         sx={{ 
-                          width: 54, 
-                          height: 54, 
-                          fontWeight: 700,
-                          fontSize: '1.2rem',
-                          background: isMale 
-                            ? 'linear-gradient(135deg, #1976d2 0%, #64b5f6 100%)' 
-                            : 'linear-gradient(135deg, #d32f2f 0%, #ff8a80 100%)',
-                          boxShadow: '0 4px 8px rgba(0,0,0,0.1)'
+                          '& .MuiBadge-badge': { 
+                            bgcolor: isOnline ? '#44b700' : '#bdbdbd', 
+                            border: '2px solid white',
+                            boxShadow: `0 0 0 1px ${isOnline ? '#44b700' : '#bdbdbd'}`
+                          } 
                         }}
                       >
-                        {initial}
-                      </Avatar>
+                        <Avatar 
+                          sx={{ 
+                            width: 54, 
+                            height: 54, 
+                            fontWeight: 700,
+                            fontSize: '1.2rem',
+                            background: isMale 
+                              ? 'linear-gradient(135deg, #1976d2 0%, #64b5f6 100%)' 
+                              : 'linear-gradient(135deg, #d32f2f 0%, #ff8a80 100%)',
+                            boxShadow: '0 4px 8px rgba(0,0,0,0.1)'
+                          }}
+                        >
+                          {initial}
+                        </Avatar>
+                      </Badge>
                     </Badge>
 
                     <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -276,10 +353,11 @@ export default function ConversationsList() {
                         <Typography 
                           variant="body2" 
                           sx={{ 
-                            color: 'text.secondary', 
+                            color: unread > 0 ? 'text.primary' : 'text.secondary', 
                             overflow: 'hidden', 
                             textOverflow: 'ellipsis', 
                             whiteSpace: 'nowrap',
+                            fontWeight: unread > 0 ? 700 : 400,
                             maxWidth: '90%'
                           }}
                         >
